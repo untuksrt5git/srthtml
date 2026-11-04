@@ -302,9 +302,14 @@ function processAdaptiveResponse(){
   if(missing.length){
    const min=Number(document.getElementById("adaptiveMinSize").value)||1;
    if(missing.length<=min){
-    adaptiveQueue.current={b:task.b,s:task.s,items:missing,depth:(task.depth||0)+1};
-    adaptiveQueue.paused=true;
-    setAdaptiveStatus(`${incoming.length} hasil valid disimpan, tetapi ${missing.length} dialog masih hilang (ID ${missing.map(x=>x.id).join(", ")}). Tugas sisa tetap disimpan untuk dicoba ulang.`,true);
+    const attempts=(task.attempts||0)+1;
+    adaptiveQueue.current={b:task.b,s:task.s,items:missing,depth:(task.depth||0)+1,attempts};
+    if(attempts>3){
+     adaptiveQueue.paused=true;
+     setAdaptiveStatus(`${incoming.length} hasil valid disimpan, tetapi ID ${missing.map(x=>x.id).join(", ")} tetap tidak dijawab setelah 3 percobaan. Antrean dijeda agar tidak mengulang tanpa batas.`,true);
+    }else{
+     setAdaptiveStatus(`${incoming.length} hasil valid disimpan. ${missing.length} dialog yang hilang (ID ${missing.map(x=>x.id).join(", ")}) akan dicoba ulang otomatis (${attempts}/3).`);
+    }
     return;
    }
    const mid=Math.ceil(missing.length/2);
