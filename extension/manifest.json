@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "description": "Menghubungkan SRT Batch Translator dengan tab Gemini untuk otomasi pengiriman dan pengambilan jawaban.",
   "permissions": [
-    "tabs"
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
     "https://untuksrt5git.github.io/*",
