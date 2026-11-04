@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "SRT Gemini Auto Bridge",
+  "version": "1.0.0",
+  "description": "Menghubungkan SRT Batch Translator dengan tab Gemini untuk otomasi pengiriman dan pengambilan jawaban.",
+  "permissions": [
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://untuksrt5git.github.io/*",
+    "https://gemini.google.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://untuksrt5git.github.io/srthtml/*"
+      ],
+      "js": [
+        "app-bridge.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://gemini.google.com/*"
+      ],
+      "js": [
+        "gemini-bridge.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
