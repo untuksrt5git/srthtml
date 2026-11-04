@@ -55,6 +55,11 @@ button.danger{background:var(--bad)}
 </div>
 
 <div class="notice" id="autosaveStatus">Autosave: menunggu data.</div>
+<div class="grid">
+ <button class="warning" onclick="deleteAutosave()">Hapus Autosave</button>
+ <button class="danger" onclick="resetProject()">Reset Proyek</button>
+</div>
+<p class="note">Hapus Autosave menghapus salinan otomatis browser tetapi membiarkan proyek yang sedang terbuka tetap tampil. Reset Proyek menghapus seluruh progres dan mengosongkan halaman.</p>
 <div class="form-group">
  <button class="warning" onclick="document.getElementById('backupFile').click()">Muat Cadangan JSON</button>
  <input type="file" id="backupFile" accept=".json,application/json" class="hidden">
@@ -110,7 +115,7 @@ ATURAN KETAT:
  <p class="note">Dengan ekstensi SRT Gemini Auto Bridge terpasang dan tab Gemini sudah login, aplikasi dapat mengirim tugas, membaca jawaban, memvalidasi ID, menyimpan hasil, lalu melanjutkan tugas berikutnya. Jika ekstensi belum terhubung, fungsi antrean manual tetap tersedia.</p>
  <div class="notice" id="extensionStatus" aria-live="polite">Status ekstensi: belum diuji. Buka halaman ini melalui GitHub Pages, lalu pasang ekstensi SRT Gemini Auto Bridge di Vivaldi.</div>
  <div class="grid">
-  <div class="form-group"><label for="adaptiveChunkSize">Ukuran awal tugas</label><input type="number" id="adaptiveChunkSize" value="60" min="1" max="600"></div>
+  <div class="form-group"><label for="adaptiveChunkSize">Ukuran awal tugas</label><input type="number" id="adaptiveChunkSize" value="500" min="1" max="600"></div>
   <div class="form-group"><label for="adaptiveMinSize">Ukuran terkecil sebelum ditandai</label><input type="number" id="adaptiveMinSize" value="1" min="1" max="20"></div>
  </div>
  <button class="success" onclick="startAutoGemini()">Mulai Otomatis via Gemini</button>
@@ -161,6 +166,7 @@ const defaultPromptText=document.getElementById("systemPrompt").value;
 const AUTOSAVE_KEY="srt_batch_translator_v24_autosave";
 let restoringState=false;
 let autosaveTimer=null;
+let autosaveDisabled=false;
 let adaptiveQueue={tasks:[],current:null,paused:false,message:""};
 let autoGeminiMode=false;
 let autoDispatchTimer=null;
@@ -403,6 +409,55 @@ function showAutosaveStatus(message,isError=false){
  el.style.borderColor=isError?"var(--bad)":"var(--border)";
 }
 
+function deleteAutosave(){
+ if(!confirm("Hapus progres autosave yang tersimpan di browser ini? Proyek yang sedang terbuka tidak akan dihapus, tetapi perubahan berikutnya tidak akan disimpan otomatis sampai Anda memuat SRT baru atau memulihkan cadangan."))return;
+ clearTimeout(autosaveTimer);
+ autosaveTimer=null;
+ try{
+  localStorage.removeItem(AUTOSAVE_KEY);
+  autosaveDisabled=true;
+  showAutosaveStatus("Autosave telah dihapus. Proyek yang sedang terbuka tetap ada, tetapi tidak akan disimpan otomatis.");
+ }catch(err){
+  showAutosaveStatus("Gagal menghapus autosave: "+err.message,true);
+ }
+}
+
+function resetProject(){
+ if(!confirm("Reset seluruh proyek? Semua hasil terjemahan, antrean, draf, dan autosave akan dihapus dari browser ini. Tindakan ini tidak dapat dibatalkan."))return;
+ clearTimeout(autosaveTimer);
+ clearTimeout(autoDispatchTimer);
+ autosaveTimer=null;
+ autoDispatchTimer=null;
+ autoGeminiMode=false;
+ adaptiveQueue={tasks:[],current:null,paused:false,message:""};
+ autosaveDisabled=false;
+ globalParsedData=[];
+ globalBatches=[];
+ originalFileName="subtitle";
+ translationStorage={};
+ try{localStorage.removeItem(AUTOSAVE_KEY);}catch(e){}
+ document.getElementById("srtFile").value="";
+ document.getElementById("backupFile").value="";
+ document.getElementById("batchSize").value="60";
+ document.getElementById("subBatchSize").value="20";
+ document.getElementById("adaptiveChunkSize").value="500";
+ document.getElementById("adaptiveMinSize").value="1";
+ document.getElementById("systemPrompt").value=defaultPromptText;
+ document.getElementById("batchSelector").innerHTML="";
+ document.getElementById("subBatchSelector").innerHTML="";
+ document.getElementById("jsonBatchOutput").value="";
+ document.getElementById("currentTranslatedInput").value="";
+ document.getElementById("outputSection").classList.add("hidden");
+ document.getElementById("progressText").textContent="0%";
+ document.getElementById("progressBar").style.width="0%";
+ document.getElementById("missingSummary").textContent="Belum ada data.";
+ document.getElementById("statusPanel").innerHTML="";
+ document.getElementById("adaptiveStatus").textContent="Antrean belum dibuat.";
+ document.getElementById("extensionStatus").textContent="Status ekstensi: belum diuji. Buka halaman ini melalui GitHub Pages, lalu pasang ekstensi SRT Gemini Auto Bridge di Vivaldi.";
+ document.getElementById("jsonCheckStatus").textContent="Pemeriksaan JSON otomatis siap. Tempel hasil terjemahan untuk memeriksa formatnya.";
+ showAutosaveStatus("Autosave: dihapus. Siap memulai proyek baru.");
+}
+
 function buildBatches(parsed,batchSize,subSize){
  const batches=[];
  for(let i=0;i<parsed.length;i+=batchSize){
@@ -433,7 +488,7 @@ function getAppSnapshot(){
 }
 
 function persistAppState(showMessage=true){
- if(restoringState||!globalParsedData.length)return;
+ if(restoringState||autosaveDisabled||!globalParsedData.length)return;
  try{
   localStorage.setItem(AUTOSAVE_KEY,JSON.stringify(getAppSnapshot()));
   if(showMessage){
@@ -446,7 +501,7 @@ function persistAppState(showMessage=true){
 }
 
 function scheduleAutosave(){
- if(restoringState||!globalParsedData.length)return;
+ if(restoringState||autosaveDisabled||!globalParsedData.length)return;
  clearTimeout(autosaveTimer);
  autosaveTimer=setTimeout(()=>persistAppState(),400);
 }
@@ -462,6 +517,7 @@ function applySnapshot(data){
   throw new Error("Pengaturan ukuran batch di dalam cadangan tidak valid.");
  }
  restoringState=true;
+ autosaveDisabled=false;
  try{
   globalParsedData=data.parsedData;
   originalFileName=data.originalFileName||"subtitle";
@@ -616,6 +672,7 @@ function processSRT(){
    return;
   }
 
+  autosaveDisabled=false;
   globalParsedData=parsed;
   translationStorage={};
   globalBatches=buildBatches(parsed,batchSize,subSize);
