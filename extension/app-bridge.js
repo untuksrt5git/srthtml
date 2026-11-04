@@ -18,7 +18,11 @@
     });
   });
   chrome.runtime.onMessage.addListener((message) => {
-    if (!message || message.type !== "SRT_AUTOMATION_RESULT") return;
-    window.postMessage({source:"srt-gemini-extension",type:"SRT_AUTO_RESULT",result:message.result,error:message.error}, APP_ORIGIN);
+    if (!message) return;
+    if (message.type === "SRT_AUTOMATION_RESULT") {
+      window.postMessage({source:"srt-gemini-extension",type:"SRT_AUTO_RESULT",result:message.result,error:message.error}, APP_ORIGIN);
+    } else if (message.type === "SRT_AUTOMATION_STATUS") {
+      window.postMessage({source:"srt-gemini-extension",type:"SRT_AUTO_STATUS",message:message.message}, APP_ORIGIN);
+    }
   });
 })();
