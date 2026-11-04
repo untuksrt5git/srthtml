@@ -1,0 +1,1076 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SRT Batch Translator Helper v2.8 Auto Gemini</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--text:#f8fafc;--primary:#3b82f6;--border:#334155;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444}
+*{box-sizing:border-box}
+body{font-family:system-ui,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:16px;display:flex;justify-content:center}
+.container{width:100%;max-width:950px;background:var(--card);padding:20px;border-radius:12px;box-shadow:0 4px 20px #0005}
+h2{margin-top:0;color:#60a5fa}
+.form-group{margin-bottom:16px}
+label{display:block;margin-bottom:8px;font-weight:600}
+input[type=file],input[type=number],select,textarea{width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px}
+textarea{resize:vertical;font:13px monospace}
+.json-check{margin-top:8px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-size:13px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.json-check.ok{border-color:var(--ok);color:#86efac}.json-check.bad{border-color:var(--bad);color:#fecaca}.json-check.neutral{color:#cbd5e1}
+.json-check code{color:inherit}
+button{background:var(--primary);color:white;border:0;padding:10px 16px;font-size:14px;font-weight:600;border-radius:6px;cursor:pointer;margin:0 7px 8px 0}
+button:hover{filter:brightness(1.1)}
+button.success{background:var(--ok);color:#052e16}
+button.warning{background:var(--warn);color:#422006}
+button.danger{background:var(--bad)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.hidden{display:none}
+.section{margin-top:22px;border-top:1px solid var(--border);padding-top:18px}
+.panel{background:var(--bg);border:1px solid var(--border);padding:12px;border-radius:6px;max-height:230px;overflow:auto}
+.status-item{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px;margin-bottom:5px;border-radius:4px;background:var(--card);font-size:13px;cursor:pointer}
+.badge{padding:3px 8px;border-radius:4px;font-size:11px;font-weight:bold;white-space:nowrap}
+.done{background:var(--ok);color:#052e16}
+.pending{background:var(--bad);color:white}
+.partial{background:var(--warn);color:#422006}
+.progress{height:10px;background:var(--border);border-radius:5px;overflow:hidden;margin:8px 0 14px}
+.bar{height:100%;width:0;background:var(--ok);transition:width .2s}
+.subbox{background:#111827;border:1px solid var(--border);padding:14px;border-radius:8px;margin-top:14px}
+.note{font-size:13px;color:#cbd5e1;line-height:1.5}
+.notice{padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:#0f172a;margin:12px 0;font-size:13px}
+@media(max-width:600px){
+ .grid{grid-template-columns:1fr}
+ .container{padding:15px}
+ button{max-width:100%}
+}
+</style>
+</head>
+<body>
+<div class="container">
+<h2>SRT Batch & Sub-Batch JSON Translator Helper v2.8</h2>
+<p class="note">Versi 2.8 — Auto Gemini Bridge, Auto Split, validasi hasil, dan autosave. Gunakan tab Gemini yang sudah login di Vivaldi.</p>
+
+<div class="form-group">
+<label for="srtFile">1. Pilih File Subtitle (.srt)</label>
+<input type="file" id="srtFile" accept=".srt">
+</div>
+
+<div class="notice" id="autosaveStatus">Autosave: menunggu data.</div>
+<div class="form-group">
+ <button class="warning" onclick="document.getElementById('backupFile').click()">Muat Cadangan JSON</button>
+ <input type="file" id="backupFile" accept=".json,application/json" class="hidden">
+ <p class="note">Progres disimpan otomatis di browser HP ini. Ekspor JSON secara berkala untuk cadangan jika data browser terhapus atau Anda pindah perangkat.</p>
+</div>
+
+<div class="grid">
+<div class="form-group">
+<label for="batchSize">Jumlah dialog per Batch Utama</label>
+<input type="number" id="batchSize" value="60" min="1" max="600">
+</div>
+<div class="form-group">
+<label for="subBatchSize">Dialog per Sub-Batch (0 = tanpa sub-batch)</label>
+<input type="number" id="subBatchSize" value="20" min="0" max="600">
+</div>
+</div>
+
+<button onclick="processSRT()">Pecah ke JSON Batch</button>
+
+<div id="outputSection" class="hidden">
+<div class="section">
+<h3>2. Prompt dan JSON Batch</h3>
+<div class="form-group">
+<label for="systemPrompt">Prompt (dapat diedit)</label>
+<textarea id="systemPrompt" rows="7">Terjemahkan teks pada value "text" di dalam JSON berikut ke dalam Bahasa Indonesia yang natural, intim, dan sehari-hari. Gunakan kata 'kontol' dan 'memek', serta frasa 'keluarkan pejunya di dalam' (jangan pakai kata slang kaku).
+ATURAN KETAT:
+1. JANGAN mengubah struktur key JSON, urutan, maupun jumlah data.
+2. JANGAN mengubah format key "id".
+3. Hanya terjemahkan teks pada "text".
+4. Kembalikan hasilnya DALAM FORMAT JSON YANG VALID PERSIS SEPERTI INPUT TANPA TEKS TAMBAHAN.
+5. Kembalikan dalam bentuk code yg bisa di copy</textarea>
+<button class="warning" onclick="resetPrompt()">Reset Prompt Default</button>
+</div>
+
+<div class="grid">
+<div class="form-group">
+<label for="batchSelector">Batch Utama</label>
+<select id="batchSelector" onchange="updateSubBatchDropdown()"></select>
+</div>
+<div class="form-group">
+<label for="subBatchSelector">Sub-Batch</label>
+<select id="subBatchSelector" onchange="displayBatchData()"></select>
+</div>
+</div>
+
+<label>JSON untuk AI</label>
+<textarea id="jsonBatchOutput" rows="9" readonly></textarea>
+<button onclick="copyCombinedPromptAndJSON()">Salin Prompt + JSON</button>
+<button onclick="copyBatchJSON()">Salin JSON saja</button>
+
+<div class="subbox" id="adaptivePanel">
+ <h3>Auto Translate + Auto Split + Auto Save</h3>
+ <p class="note">Dengan ekstensi SRT Gemini Auto Bridge terpasang dan tab Gemini sudah login, aplikasi dapat mengirim tugas, membaca jawaban, memvalidasi ID, menyimpan hasil, lalu melanjutkan tugas berikutnya. Jika ekstensi belum terhubung, fungsi antrean manual tetap tersedia.</p>
+ <div class="notice" id="extensionStatus" aria-live="polite">Status ekstensi: belum diuji. Buka halaman ini melalui GitHub Pages, lalu pasang ekstensi SRT Gemini Auto Bridge di Vivaldi.</div>
+ <div class="grid">
+  <div class="form-group"><label for="adaptiveChunkSize">Ukuran awal tugas</label><input type="number" id="adaptiveChunkSize" value="60" min="1" max="600"></div>
+  <div class="form-group"><label for="adaptiveMinSize">Ukuran terkecil sebelum ditandai</label><input type="number" id="adaptiveMinSize" value="1" min="1" max="20"></div>
+ </div>
+ <button class="success" onclick="startAutoGemini()">Mulai Otomatis via Gemini</button>
+ <button onclick="startAdaptiveQueue()">Buat Antrean Manual</button>
+ <button onclick="copyAdaptiveTask()">Salin Tugas Aktif ke Gemini</button>
+ <button class="warning" onclick="processAdaptiveResponse()">Proses Hasil Gemini Manual</button>
+ <button class="danger" onclick="pauseAdaptiveQueue()">Jeda / Hentikan Otomatis</button>
+ <div class="notice" id="adaptiveStatus" aria-live="polite">Antrean belum dibuat.</div>
+</div>
+</div>
+
+<div class="section">
+<h3>3. Hasil Terjemahan dan Progress</h3>
+<label>Progress: <span id="progressText">0%</span></label>
+<div class="progress"><div id="progressBar" class="bar"></div></div>
+<div class="notice" id="missingSummary">Belum ada data.</div>
+
+<div class="form-group">
+<button class="danger" onclick="copyMissingJSONBatch()">Salin JSON yang Kurang di Sub-Batch Ini</button>
+<button class="warning" onclick="copyMissingIDsList()">Salin ID yang Kurang di Sub-Batch Ini</button>
+</div>
+
+<p class="note">Fitur ini hanya mengambil dialog yang belum diterjemahkan pada batch dan sub-batch yang sedang dipilih. Dialog dari batch atau sub-batch lain tidak akan ikut disalin.</p>
+
+<div id="statusPanel" class="panel"></div>
+
+<div class="subbox">
+<label id="currentSubBatchLabel">Hasil terjemahan sub-batch aktif</label>
+<textarea id="currentTranslatedInput" rows="12" placeholder="Tempel JSON hasil terjemahan di sini..."></textarea>
+<div id="jsonCheckStatus" class="json-check neutral" role="status" aria-live="polite">Pemeriksaan JSON otomatis siap. Tempel hasil terjemahan untuk memeriksa formatnya.</div>
+<button class="success" onclick="saveCurrentSubBatchTranslation()">Simpan Terjemahan</button>
+<button class="warning" onclick="clearCurrentSubBatch()">Kosongkan Sub-Batch</button>
+</div>
+
+<div class="section">
+<h3>4. Simpan dan Cadangkan Hasil</h3>
+<button class="success" onclick="exportBackupJSON()">Ekspor Cadangan JSON</button>
+<p class="note">Cadangan JSON berisi seluruh progres proyek agar dapat dipulihkan nanti atau dipindahkan ke perangkat lain.</p>
+<button class="success" onclick="generateSRTFile()">Download SRT hasil terjemahan</button>
+</div>
+</div>
+</div>
+</div>
+
+<script>
+let globalParsedData=[],globalBatches=[],originalFileName="subtitle",translationStorage={};
+const defaultPromptText=document.getElementById("systemPrompt").value;
+const AUTOSAVE_KEY="srt_batch_translator_v24_autosave";
+let restoringState=false;
+let autosaveTimer=null;
+let adaptiveQueue={tasks:[],current:null,paused:false,message:""};
+let autoGeminiMode=false;
+let autoDispatchTimer=null;
+
+function setAdaptiveStatus(message,isError=false){
+ const el=document.getElementById("adaptiveStatus");
+ if(!el)return;
+ el.textContent=message;
+ el.style.borderColor=isError?"var(--bad)":"var(--border)";
+ adaptiveQueue.message=message;
+ scheduleAutosave();
+}
+
+function adaptiveTaskSummary(){
+ const current=adaptiveQueue.current;
+ const left=adaptiveQueue.tasks.length;
+ if(!current)return `Antrean: ${left} tugas menunggu${adaptiveQueue.paused?" — dijeda":""}.`;
+ return `Tugas aktif: ${current.items.length} dialog (ID ${current.items[0].id}–${current.items.at(-1).id}). ${left} tugas menunggu${adaptiveQueue.paused?" — dijeda":""}.`;
+}
+
+function startAdaptiveQueue(){
+ const active=getActiveTarget();
+ if(!active){alert("Muat SRT dan pilih sub-batch terlebih dahulu.");return;}
+ const size=Number(document.getElementById("adaptiveChunkSize").value);
+ const min=Number(document.getElementById("adaptiveMinSize").value);
+ if(!Number.isInteger(size)||size<1||size>600||!Number.isInteger(min)||min<1||min>20||min>size){
+  alert("Ukuran tugas tidak valid. Pastikan ukuran terkecil tidak lebih besar dari ukuran awal.");return;
+ }
+ const missing=getMissingItems();
+ if(!missing.length){alert("Sub-batch aktif sudah lengkap.");return;}
+ const tasks=[];
+ for(let i=0;i<missing.length;i+=size)tasks.push({b:active.b,s:active.s,items:missing.slice(i,i+size),depth:0});
+ adaptiveQueue={tasks,current:null,paused:false,message:""};
+ advanceAdaptiveQueue();
+ setAdaptiveStatus(`Antrean dibuat untuk ${missing.length} dialog dalam ${tasks.length} tugas. ${adaptiveTaskSummary()}`);
+}
+
+function advanceAdaptiveQueue(){
+ if(adaptiveQueue.paused)return;
+ if(!adaptiveQueue.current)adaptiveQueue.current=adaptiveQueue.tasks.shift()||null;
+ if(!adaptiveQueue.current){setAdaptiveStatus("Antrean selesai. Semua tugas telah diproses.");return;}
+ const t=adaptiveQueue.current;
+ const target=globalBatches[t.b]?.subs[t.s];
+ if(!target){adaptiveQueue.current=null;setAdaptiveStatus("Tugas dilewati: sub-batch sumber tidak ditemukan.",true);return;}
+ const saved=getSavedTranslationMap();
+ t.items=t.items.filter(x=>!saved.has(x.id));
+ if(!t.items.length){adaptiveQueue.current=null;advanceAdaptiveQueue();return;}
+ setAdaptiveStatus("Siap dikirim ke Gemini. "+adaptiveTaskSummary());
+}
+
+function copyAdaptiveTask(){
+ adaptiveQueue.paused=false;
+ if(!adaptiveQueue.current)advanceAdaptiveQueue();
+ const t=adaptiveQueue.current;
+ if(!t){alert("Tidak ada tugas aktif. Buat antrean terlebih dahulu.");return;}
+ const prompt=document.getElementById("systemPrompt").value.trim();
+ const text=`${prompt}\n\nDATA JSON (${t.items.length} dialog; tugas otomatis):\n${JSON.stringify(t.items,null,2)}`;
+ copyToClipboard(text,`Tugas ${t.items.length} dialog berhasil disalin. Buka Gemini dan tempel prompt tersebut.`);
+}
+
+function splitAdaptiveTask(task,reason){
+ const min=Number(document.getElementById("adaptiveMinSize").value)||1;
+ if(task.items.length<=min){
+  adaptiveQueue.paused=true;
+  setAdaptiveStatus(`Gagal pada tugas terkecil (${task.items.length} dialog, ID ${task.items[0].id}). Antrean dijeda agar tidak mengulang tanpa batas. Penyebab: ${reason}`,true);
+  return false;
+ }
+ const mid=Math.ceil(task.items.length/2);
+ const first={...task,items:task.items.slice(0,mid),depth:(task.depth||0)+1};
+ const second={...task,items:task.items.slice(mid),depth:(task.depth||0)+1};
+ adaptiveQueue.tasks.unshift(second);
+ adaptiveQueue.current=first;
+ setAdaptiveStatus(`Tugas gagal/parsial, dipecah menjadi ${first.items.length} + ${second.items.length} dialog. ${adaptiveTaskSummary()}`);
+ return true;
+}
+
+function processAdaptiveResponse(){
+ const task=adaptiveQueue.current;
+ if(!task){alert("Tidak ada tugas aktif.");return;}
+ const active=getActiveTarget();
+ if(!active||active.b!==task.b||active.s!==task.s){
+  alert(`Tugas ini berasal dari Batch ${task.b+1}, Sub ${task.s+1}. Pilih sub-batch tersebut sebelum memproses respons Gemini.`);return;
+ }
+ const raw=document.getElementById("currentTranslatedInput").value.trim();
+ if(!raw){alert("Tempel respons Gemini terlebih dahulu.");return;}
+ const expected=task.items;
+ try{
+  const incoming=validateTranslation(raw,expected);
+  const target=globalBatches[task.b]?.subs[task.s];
+  if(!target)throw new Error("Sub-batch asal tugas tidak ditemukan.");
+  const key=`${task.b}_${task.s}`;
+  const merged=new Map();
+  if(translationStorage[key]){
+   try{validateTranslation(translationStorage[key],target).forEach(x=>merged.set(x.id,x.text));}catch(e){}
+  }
+  incoming.forEach(x=>merged.set(x.id,x.text));
+  const ordered=target.filter(x=>merged.has(x.id)).map(x=>({id:x.id,text:merged.get(x.id)}));
+  translationStorage[key]=JSON.stringify(ordered);
+  const got=new Set(incoming.map(x=>x.id));
+  const missing=expected.filter(x=>!got.has(x.id));
+  document.getElementById("currentTranslatedInput").value=translationStorage[key];
+  updateStatusPanel();persistAppState(false);
+  adaptiveQueue.current=null;
+  if(missing.length){
+   const min=Number(document.getElementById("adaptiveMinSize").value)||1;
+   const mid=Math.ceil(missing.length/2);
+   if(missing.length<=min){
+    adaptiveQueue.current={b:task.b,s:task.s,items:missing,depth:(task.depth||0)+1};
+    adaptiveQueue.paused=true;
+    setAdaptiveStatus(`${incoming.length} hasil valid disimpan, tetapi ${missing.length} dialog masih hilang (ID ${missing.map(x=>x.id).join(", ")}). Tugas sisa tetap disimpan sebagai tugas aktif untuk dicoba ulang.`,true);
+    return;
+   }
+   const taskA={b:task.b,s:task.s,items:missing.slice(0,mid),depth:(task.depth||0)+1};
+   const taskB={b:task.b,s:task.s,items:missing.slice(mid),depth:(task.depth||0)+1};
+   adaptiveQueue.tasks.unshift(taskB);
+   adaptiveQueue.current=taskA;
+   setAdaptiveStatus(`${incoming.length} dialog valid disimpan. ${missing.length} yang belum ada otomatis dipecah menjadi ${taskA.items.length} + ${taskB.items.length}. ${adaptiveTaskSummary()}`);
+  }else{
+   setAdaptiveStatus(`${incoming.length} dialog valid disimpan. Tugas ini lengkap. Melanjutkan antrean…`);
+   advanceAdaptiveQueue();
+  }
+  persistAppState(false);
+ }catch(err){
+  const msg=err.message||"Respons tidak dapat dibaca.";
+  if(/quota|rate.?limit|too many|limit reached|reached your limit|capacity|try again|network|offline|connection|sign.?in|log.?in|captcha|temporarily unavailable|temporarily|server error/i.test(msg)||/429|503|502/.test(msg)){
+   adaptiveQueue.paused=true;
+   setAdaptiveStatus(`Kemungkinan gangguan sementara/login/limit, bukan masalah ukuran batch. Tugas tidak dipecah dan tidak dihapus. Perbaiki kondisi Gemini lalu tekan Salin Tugas Aktif untuk mencoba ulang. Detail: ${msg}`,true);
+   return;
+  }
+  splitAdaptiveTask(task,msg);
+  persistAppState(false);
+ }
+}
+
+
+function startAutoGemini(){
+ if(!globalParsedData.length){alert("Muat file SRT terlebih dahulu.");return;}
+ if(!adaptiveQueue.current&&!adaptiveQueue.tasks.length){
+  startAdaptiveQueue();
+  if(!adaptiveQueue.current&&!adaptiveQueue.tasks.length)return;
+ }
+ autoGeminiMode=true;
+ adaptiveQueue.paused=false;
+ setAdaptiveStatus("Mode otomatis aktif. Menghubungkan aplikasi dengan ekstensi dan Gemini…");
+ dispatchAutoGeminiTask();
+}
+
+function dispatchAutoGeminiTask(){
+ if(!autoGeminiMode||adaptiveQueue.paused)return;
+ if(!adaptiveQueue.current)advanceAdaptiveQueue();
+ const task=adaptiveQueue.current;
+ if(!task){autoGeminiMode=false;return;}
+ const payload={prompt:document.getElementById("systemPrompt").value.trim(),items:task.items};
+ setAdaptiveStatus(`Mengirim ${task.items.length} dialog ke Gemini. ${adaptiveTaskSummary()}`);
+ window.postMessage({source:"srt-batch-app",type:"SRT_GEMINI_SEND",task:payload},"*");
+}
+
+function scheduleAutoGeminiNext(){
+ if(!autoGeminiMode||adaptiveQueue.paused)return;
+ clearTimeout(autoDispatchTimer);
+ autoDispatchTimer=setTimeout(dispatchAutoGeminiTask,1200);
+}
+
+function handleAutoGeminiMessage(event){
+ if(event.source!==window||event.data?.source!=="srt-gemini-extension")return;
+ const d=event.data;
+ if(d.type==="SRT_AUTO_ACK"){
+  const status=document.getElementById("extensionStatus");
+  if(d.ok){if(status)status.textContent="Status ekstensi: terhubung ke tab Gemini.";}
+  else{if(status)status.textContent="Status ekstensi: gagal terhubung — "+(d.error||"tidak diketahui");autoGeminiMode=false;adaptiveQueue.paused=true;setAdaptiveStatus("Ekstensi tidak dapat menerima tugas: "+(d.error||"tidak diketahui")+". Periksa pemasangan ekstensi.",true);}
+  return;
+ }
+ if(d.type==="SRT_AUTO_STATUS"){
+  setAdaptiveStatus("Gemini: "+d.message);
+  return;
+ }
+ if(d.type==="SRT_AUTO_RESULT"){
+  if(d.error){autoGeminiMode=false;adaptiveQueue.paused=true;setAdaptiveStatus("Otomatis dijeda: "+d.error+". Tugas tetap tersimpan; periksa Gemini lalu mulai lagi.",true);return;}
+  if(typeof d.result!=="string"||!d.result.trim()){
+   autoGeminiMode=false;adaptiveQueue.paused=true;setAdaptiveStatus("Gemini tidak mengembalikan teks jawaban. Tugas tetap tersimpan untuk diperiksa.",true);return;
+  }
+  document.getElementById("currentTranslatedInput").value=d.result;
+  inspectTranslationInput();
+  processAdaptiveResponse();
+  scheduleAutoGeminiNext();
+ }
+}
+window.addEventListener("message",handleAutoGeminiMessage);
+
+function pauseAdaptiveQueue(){
+ autoGeminiMode=false;
+ clearTimeout(autoDispatchTimer);
+ adaptiveQueue.paused=true;
+ setAdaptiveStatus("Antrean dijeda. Tugas aktif dan tugas menunggu tetap tersimpan.");
+}
+
+function showAutosaveStatus(message,isError=false){
+ const el=document.getElementById("autosaveStatus");
+ if(!el)return;
+ el.textContent=message;
+ el.style.borderColor=isError?"var(--bad)":"var(--border)";
+}
+
+function buildBatches(parsed,batchSize,subSize){
+ const batches=[];
+ for(let i=0;i<parsed.length;i+=batchSize){
+  const main=parsed.slice(i,i+batchSize),subs=[];
+  const step=subSize>0?subSize:main.length;
+  for(let j=0;j<main.length;j+=step)subs.push(main.slice(j,j+step));
+  batches.push({mainIndex:batches.length+1,subs});
+ }
+ return batches;
+}
+
+function getAppSnapshot(){
+ return {
+  app:"SRT Batch Translator",
+  version:2.8,
+  adaptiveQueue,
+  savedAt:new Date().toISOString(),
+  originalFileName,
+  batchSize:Number(document.getElementById("batchSize").value)||60,
+  subBatchSize:Number(document.getElementById("subBatchSize").value)||0,
+  prompt:document.getElementById("systemPrompt").value,
+  parsedData:globalParsedData,
+  translationStorage,
+  activeBatch:document.getElementById("batchSelector").value,
+  activeSubBatch:document.getElementById("subBatchSelector").value,
+  draft:document.getElementById("currentTranslatedInput").value
+ };
+}
+
+function persistAppState(showMessage=true){
+ if(restoringState||!globalParsedData.length)return;
+ try{
+  localStorage.setItem(AUTOSAVE_KEY,JSON.stringify(getAppSnapshot()));
+  if(showMessage){
+   const time=new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+   showAutosaveStatus("Autosave: aktif — tersimpan "+time);
+  }
+ }catch(err){
+  showAutosaveStatus("Autosave gagal. Penyimpanan browser mungkin penuh; ekspor cadangan JSON.",true);
+ }
+}
+
+function scheduleAutosave(){
+ if(restoringState||!globalParsedData.length)return;
+ clearTimeout(autosaveTimer);
+ autosaveTimer=setTimeout(()=>persistAppState(),400);
+}
+
+function applySnapshot(data){
+ if(!data||!Array.isArray(data.parsedData)||!data.parsedData.length){
+  throw new Error("Cadangan tidak berisi data SRT yang valid.");
+ }
+ const batchSize=Number(data.batchSize)||60;
+ const subSize=Number(data.subBatchSize)||0;
+ if(!Number.isInteger(batchSize)||batchSize<1||batchSize>600||
+    !Number.isInteger(subSize)||subSize<0||subSize>600){
+  throw new Error("Pengaturan ukuran batch di dalam cadangan tidak valid.");
+ }
+ restoringState=true;
+ try{
+  globalParsedData=data.parsedData;
+  originalFileName=data.originalFileName||"subtitle";
+  translationStorage=(data.translationStorage&&typeof data.translationStorage==="object")?data.translationStorage:{};
+  adaptiveQueue=(data.adaptiveQueue&&typeof data.adaptiveQueue==="object")?data.adaptiveQueue:{tasks:[],current:null,paused:false,message:""};
+  document.getElementById("batchSize").value=batchSize;
+  document.getElementById("subBatchSize").value=subSize;
+  if(typeof data.prompt==="string")document.getElementById("systemPrompt").value=data.prompt;
+  globalBatches=buildBatches(globalParsedData,batchSize,subSize);
+
+  const selector=document.getElementById("batchSelector");
+  selector.innerHTML="";
+  globalBatches.forEach((g,i)=>{
+   const o=document.createElement("option");
+   o.value=i;
+   o.textContent=`Batch ${g.mainIndex} (ID ${g.subs[0][0].id}–${g.subs.at(-1).at(-1).id})`;
+   selector.appendChild(o);
+  });
+
+  document.getElementById("outputSection").classList.remove("hidden");
+  const b=Math.max(0,Math.min(Number(data.activeBatch)||0,globalBatches.length-1));
+  selector.value=String(b);
+  updateSubBatchDropdown();
+  const subCount=globalBatches[b]?.subs.length||1;
+  const s=Math.max(0,Math.min(Number(data.activeSubBatch)||0,subCount-1));
+  document.getElementById("subBatchSelector").value=String(s);
+  displayBatchData();
+  if(typeof data.draft==="string"&&data.draft){
+   document.getElementById("currentTranslatedInput").value=data.draft;
+  }
+  updateStatusPanel();
+  if(adaptiveQueue.message)document.getElementById("adaptiveStatus").textContent=adaptiveQueue.message;
+ }finally{
+  restoringState=false;
+ }
+ persistAppState(false);
+}
+
+function restoreAutosave(){
+ try{
+  const raw=localStorage.getItem(AUTOSAVE_KEY);
+  if(!raw){
+   showAutosaveStatus("Autosave: belum ada progres tersimpan.");
+   return;
+  }
+  const data=JSON.parse(raw);
+  applySnapshot(data);
+  const when=data.savedAt?new Date(data.savedAt).toLocaleString("id-ID"):"waktu tidak diketahui";
+  showAutosaveStatus("Autosave: progres berhasil dipulihkan ("+when+").");
+ }catch(err){
+  showAutosaveStatus("Autosave tidak dapat dipulihkan: "+err.message,true);
+ }
+}
+
+function exportBackupJSON(){
+ if(!globalParsedData.length){
+  alert("Belum ada proyek yang bisa dicadangkan.");
+  return;
+ }
+ persistAppState(false);
+ const blob=new Blob([JSON.stringify(getAppSnapshot(),null,2)],{type:"application/json;charset=utf-8"});
+ const url=URL.createObjectURL(blob);
+ const a=document.createElement("a");
+ a.href=url;
+ a.download=`${originalFileName}.translator-backup.json`;
+ document.body.appendChild(a);
+ a.click();
+ a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),1500);
+ showAutosaveStatus("Cadangan JSON berhasil dibuat. Simpan file tersebut di HP.");
+}
+
+function importBackupJSON(file){
+ if(!file)return;
+ const reader=new FileReader();
+ reader.onerror=()=>alert("File cadangan gagal dibaca.");
+ reader.onload=e=>{
+  try{
+   const data=JSON.parse(String(e.target.result||""));
+   if(!confirm("Muat cadangan ini? Proyek yang sedang terbuka akan digantikan oleh isi cadangan."))return;
+   applySnapshot(data);
+   showAutosaveStatus("Cadangan JSON berhasil dimuat dan disimpan ke autosave browser.");
+   alert("Cadangan berhasil dipulihkan.");
+  }catch(err){
+   alert("Cadangan tidak dapat dimuat: "+err.message);
+  }
+ };
+ reader.readAsText(file);
+}
+
+function resetPrompt(){
+ document.getElementById("systemPrompt").value=defaultPromptText;
+ scheduleAutosave();
+ alert("Prompt dikembalikan ke pengaturan awal.");
+}
+
+function parseSRT(source){
+ const text=source.replace(/^\uFEFF/,"").replace(/\r\n?/g,"\n").trim();
+ if(!text)return [];
+ const blocks=text.split(/\n\s*\n/),result=[];
+ for(const block of blocks){
+  const lines=block.split("\n");
+  if(lines.length<3)continue;
+  let timeIndex=lines.findIndex(line=>line.includes("-->"));
+  if(timeIndex<0)continue;
+  const timestamp=lines[timeIndex].trim();
+  const rawId=timeIndex>0?lines[timeIndex-1].trim():String(result.length+1);
+  const id=Number.parseInt(rawId,10);
+  if(!Number.isInteger(id)||id<0)continue;
+  const subtitleText=lines.slice(timeIndex+1).join("\n").trim();
+  if(!subtitleText)continue;
+  result.push({id,timestamp,text:subtitleText});
+ }
+ return result;
+}
+
+function processSRT(){
+ const input=document.getElementById("srtFile");
+ const batchSize=Number(document.getElementById("batchSize").value);
+ const subSize=Number(document.getElementById("subBatchSize").value);
+
+ if(!input.files.length){
+  alert("Pilih file SRT terlebih dahulu.");
+  return;
+ }
+ if(!Number.isInteger(batchSize)||batchSize<1||batchSize>600||!Number.isInteger(subSize)||subSize<0||subSize>600){
+  alert("Ukuran batch tidak valid.");
+  return;
+ }
+
+ const file=input.files[0];
+ originalFileName=file.name.replace(/\.[^/.]+$/,"");
+ const reader=new FileReader();
+
+ reader.onerror=()=>alert("File gagal dibaca.");
+
+ reader.onload=e=>{
+  const parsed=parseSRT(String(e.target.result||""));
+  if(!parsed.length){
+   alert("Tidak ada dialog SRT valid yang ditemukan.");
+   return;
+  }
+
+  const seen=new Set(),duplicates=[];
+  parsed.forEach(x=>{
+   if(seen.has(x.id))duplicates.push(x.id);
+   seen.add(x.id);
+  });
+
+  if(duplicates.length){
+   alert("Ditemukan nomor ID duplikat pada SRT: "+[...new Set(duplicates)].join(", ")+". Periksa file sumber sebelum melanjutkan.");
+   return;
+  }
+
+  globalParsedData=parsed;
+  translationStorage={};
+  globalBatches=buildBatches(parsed,batchSize,subSize);
+
+  const selector=document.getElementById("batchSelector");
+  selector.innerHTML="";
+
+  globalBatches.forEach((g,i)=>{
+   const o=document.createElement("option");
+   o.value=i;
+   o.textContent=`Batch ${g.mainIndex} (ID ${g.subs[0][0].id}–${g.subs.at(-1).at(-1).id})`;
+   selector.appendChild(o);
+  });
+
+  document.getElementById("outputSection").classList.remove("hidden");
+  updateSubBatchDropdown();
+  updateStatusPanel();
+  persistAppState();
+
+  alert(`Berhasil membaca ${parsed.length} dialog dalam ${globalBatches.length} batch utama.`);
+ };
+
+ reader.readAsText(file);
+}
+
+function getActiveTarget(){
+ const b=Number(document.getElementById("batchSelector").value);
+ const s=Number(document.getElementById("subBatchSelector").value);
+ return globalBatches[b]?.subs[s]?{
+  b,s,data:globalBatches[b].subs[s],key:`${b}_${s}`
+ }:null;
+}
+
+function updateSubBatchDropdown(){
+ const b=Number(document.getElementById("batchSelector").value);
+ const sel=document.getElementById("subBatchSelector");
+ sel.innerHTML="";
+ const group=globalBatches[b];
+ if(!group)return;
+
+ group.subs.forEach((sub,i)=>{
+  const o=document.createElement("option");
+  o.value=i;
+  o.textContent=`Sub ${i+1} (${sub.length} dialog, ID ${sub[0].id}–${sub.at(-1).id})`;
+  sel.appendChild(o);
+ });
+
+ displayBatchData();
+}
+
+function displayBatchData(){
+ const active=getActiveTarget();
+ if(!active)return;
+
+ document.getElementById("jsonBatchOutput").value=
+  JSON.stringify(active.data.map(x=>({id:x.id,text:x.text})),null,2);
+
+ document.getElementById("currentSubBatchLabel").textContent=
+  `Hasil Batch ${active.b+1}, Sub ${active.s+1} (ID ${active.data[0].id}–${active.data.at(-1).id})`;
+
+ document.getElementById("currentTranslatedInput").value=
+  translationStorage[active.key]||"";
+ inspectTranslationInput();
+}
+
+function normalizeJSONText(raw){
+ let cleaned=String(raw||"").trim()
+  .replace(/^```(?:json)?\s*/i,"")
+  .replace(/\s*```$/,"")
+  .trim();
+ const firstArray=cleaned.indexOf("[");
+ const lastArray=cleaned.lastIndexOf("]");
+ if(firstArray>=0&&lastArray>firstArray){
+  cleaned=cleaned.slice(firstArray,lastArray+1);
+ }else{
+  const first=cleaned.indexOf("{");
+  const last=cleaned.lastIndexOf("}");
+  if(first>=0&&last>first)cleaned=cleaned.slice(first,last+1);
+ }
+ return cleaned;
+}
+
+function parseAndCleanJSON(raw){
+ return JSON.parse(normalizeJSONText(raw));
+}
+
+function showJSONCheck(message,type="neutral"){
+ const el=document.getElementById("jsonCheckStatus");
+ if(!el)return;
+ el.className="json-check "+type;
+ el.textContent=message;
+}
+
+function inspectTranslationInput(){
+ const raw=document.getElementById("currentTranslatedInput").value;
+ if(!raw.trim()){
+  showJSONCheck("Pemeriksaan JSON otomatis siap. Tempel hasil terjemahan untuk memeriksa formatnya.","neutral");
+  return;
+ }
+ const cleaned=normalizeJSONText(raw);
+ try{
+  const active=getActiveTarget();
+  if(!active){ JSON.parse(cleaned); showJSONCheck("JSON valid secara sintaks. Muat SRT untuk memeriksa ID.","ok"); return; }
+  const items=validateTranslation(raw,active.data);
+  const ids=new Set(items.map(x=>x.id));
+  const missing=active.data.length-items.length;
+  showJSONCheck(`✓ JSON valid. ${items.length} dialog terbaca.${missing?` ${missing} dialog pada sub-batch ini belum ada; hasil parsial tetap boleh disimpan.`:" Semua dialog pada sub-batch ini sudah ada."}`,"ok");
+ }catch(err){
+  let detail=err.message||"Format JSON tidak valid.";
+  const match=detail.match(/position\s+(\d+)/i);
+  if(match){
+   const pos=Math.min(Number(match[1]),cleaned.length);
+   const before=cleaned.slice(0,pos);
+   const line=before.split("\n").length;
+   const column=pos-(before.lastIndexOf("\n")+1)+1;
+   const start=Math.max(0,pos-65),end=Math.min(cleaned.length,pos+65);
+   const excerpt=cleaned.slice(start,end).replace(/\n/g,"↵\n");
+   detail=`Kesalahan format JSON di baris ${line}, kolom ${column} (karakter ${pos}).\n${detail}\n\nPotongan sekitar kesalahan:
+…${excerpt}…\n\nPeriksa koma, tanda kutip, serta kurung { } dan [ ].`;
+  }else if(/muncul lebih dari sekali/i.test(detail)){
+   detail+="\nPeriksa apakah AI menggandakan objek atau ID. Hapus entri duplikat setelah memastikan teks yang benar.";
+  }else if(/bukan bagian dari sub-batch/i.test(detail)){
+   detail+="\nPastikan hasil yang ditempel hanya berisi ID dari sub-batch yang sedang dipilih.";
+  }
+  showJSONCheck("✕ JSON belum lolos pemeriksaan. Belum ada data yang disimpan.\n\n"+detail,"bad");
+ }
+}
+
+function extractTranslationItems(value,out=[]){
+ if(Array.isArray(value)){
+  value.forEach(v=>extractTranslationItems(v,out));
+  return out;
+ }
+
+ if(value&&typeof value==="object"){
+  const id=value.id??value.ID;
+  const text=value.text??value.translation;
+
+  if(id!==undefined){
+   out.push({id:Number(id),text});
+   return out;
+  }
+
+  Object.values(value).forEach(v=>extractTranslationItems(v,out));
+ }
+
+ return out;
+}
+
+function validateTranslation(raw,expected){
+ const parsed=parseAndCleanJSON(raw);
+ const items=extractTranslationItems(parsed);
+
+ if(!Array.isArray(parsed)){
+  throw new Error("Hasil harus berupa JSON array seperti input.");
+ }
+
+ if(items.length===0){
+  throw new Error("JSON tidak berisi hasil terjemahan yang bisa disimpan.");
+ }
+
+ const expectedMap=new Map(expected.map(x=>[x.id,x]));
+ const seen=new Set();
+
+ for(const item of items){
+  if(!Number.isInteger(item.id)){
+   throw new Error("Ada ID yang bukan angka valid.");
+  }
+
+  if(seen.has(item.id)){
+   throw new Error(`ID ${item.id} muncul lebih dari sekali.`);
+  }
+
+  seen.add(item.id);
+
+  if(!expectedMap.has(item.id)){
+   throw new Error(`ID ${item.id} bukan bagian dari sub-batch aktif.`);
+  }
+
+  if(typeof item.text!=="string"||!item.text.trim()){
+   throw new Error(`Teks terjemahan untuk ID ${item.id} kosong atau bukan teks.`);
+  }
+ }
+
+ return items;
+}
+
+function getSavedTranslationMap(){
+ const map=new Map();
+
+ for(const [key,raw] of Object.entries(translationStorage)){
+  if(!raw?.trim())continue;
+
+  const [b,s]=key.split("_").map(Number);
+  const expected=globalBatches[b]?.subs[s];
+
+  if(!expected)continue;
+
+  try{
+   validateTranslation(raw,expected).forEach(x=>map.set(x.id,x.text));
+  }catch(e){
+   /* Data tidak valid tidak dihitung sebagai selesai. */
+  }
+ }
+
+ return map;
+}
+
+function isSubBatchComplete(b,s){
+ const expected=globalBatches[b]?.subs[s];
+ const raw=translationStorage[`${b}_${s}`];
+
+ if(!expected||!raw?.trim())return false;
+
+ try{
+  const items=validateTranslation(raw,expected);
+  const ids=new Set(items.map(x=>x.id));
+  return expected.every(x=>ids.has(x.id));
+ }catch(e){
+  return false;
+ }
+}
+
+function saveCurrentSubBatchTranslation(){
+ const a=getActiveTarget();
+ if(!a)return;
+
+ const raw=document.getElementById("currentTranslatedInput").value.trim();
+
+ if(!raw){
+  alert("Tidak ada JSON yang ditempel. Hasil sebelumnya tidak diubah.");
+  return;
+ }
+
+ try{
+  const incoming=validateTranslation(raw,a.data);
+
+  // Gabungkan hasil baru dengan hasil lama.
+  const merged=new Map();
+  const previous=translationStorage[a.key];
+
+  if(previous){
+   try{
+    validateTranslation(previous,a.data).forEach(x=>merged.set(x.id,x.text));
+   }catch(e){}
+  }
+
+  incoming.forEach(x=>merged.set(x.id,x.text));
+
+  const ordered=a.data
+   .filter(x=>merged.has(x.id))
+   .map(x=>({id:x.id,text:merged.get(x.id)}));
+
+  translationStorage[a.key]=JSON.stringify(ordered);
+
+  // Tampilkan kembali hasil gabungan agar tidak membingungkan.
+  document.getElementById("currentTranslatedInput").value=
+   JSON.stringify(ordered,null,2);
+  inspectTranslationInput();
+
+  updateStatusPanel();
+  persistAppState();
+
+  const missing=a.data.length-ordered.length;
+
+  alert(missing
+   ? `Hasil parsial berhasil disimpan: ${ordered.length} dari ${a.data.length} dialog.\n\n${missing} dialog masih belum diterjemahkan. Gunakan tombol "Salin JSON yang Kurang di Sub-Batch Ini" untuk melanjutkan.`
+   : `Terjemahan lengkap berhasil disimpan: ${ordered.length} dialog.`);
+
+ }catch(err){
+  inspectTranslationInput();
+  alert("Terjemahan belum disimpan. Data sebelumnya tetap aman.\n\n"+err.message);
+ }
+}
+
+function clearCurrentSubBatch(){
+ const a=getActiveTarget();
+ if(!a)return;
+
+ if(!confirm("Hapus terjemahan tersimpan untuk sub-batch ini?"))return;
+
+ delete translationStorage[a.key];
+ document.getElementById("currentTranslatedInput").value="";
+ inspectTranslationInput();
+ updateStatusPanel();
+ persistAppState();
+ alert("Sub-batch dikosongkan.");
+}
+
+function updateStatusPanel(){
+ const panel=document.getElementById("statusPanel");
+ panel.innerHTML="";
+
+ let total=0,complete=0;
+ const savedMap=getSavedTranslationMap();
+
+ globalBatches.forEach((g,b)=>g.subs.forEach((sub,s)=>{
+  total++;
+
+  const done=isSubBatchComplete(b,s);
+  if(done)complete++;
+
+  const div=document.createElement("div");
+  div.className="status-item";
+
+  const label=document.createElement("span");
+  label.textContent=`Batch ${b+1} – Sub ${s+1} (ID ${sub[0].id}–${sub.at(-1).id})`;
+
+  const savedCount=sub.filter(x=>savedMap.has(x.id)).length;
+
+  const badge=document.createElement("span");
+  badge.className="badge "+(done?"done":savedCount?"partial":"pending");
+  badge.textContent=done?"LENGKAP":savedCount?`SEBAGIAN (${savedCount}/${sub.length})`:"BELUM LENGKAP";
+
+  div.append(label,badge);
+
+  div.onclick=()=>{
+   document.getElementById("batchSelector").value=b;
+   updateSubBatchDropdown();
+   document.getElementById("subBatchSelector").value=s;
+   displayBatchData();
+  };
+
+  panel.appendChild(div);
+ }));
+
+ const pct=total?Math.round(complete/total*100):0;
+
+ document.getElementById("progressBar").style.width=pct+"%";
+ document.getElementById("progressText").textContent=
+  `${pct}% (${complete} dari ${total} sub-batch lengkap)`;
+
+ const map=getSavedTranslationMap();
+ const missing=globalParsedData.filter(x=>!map.has(x.id));
+
+ document.getElementById("missingSummary").textContent=
+  `Dialog tersimpan valid: ${map.size} dari ${globalParsedData.length}. Belum diterjemahkan: ${missing.length} dialog.`;
+}
+
+/* PERUBAHAN v2.3:
+   Mengambil kekurangan hanya dari sub-batch yang sedang aktif. */
+function getMissingItems(){
+ const active=getActiveTarget();
+
+ if(!active)return [];
+
+ const map=getSavedTranslationMap();
+
+ return active.data
+  .filter(x=>!map.has(x.id))
+  .map(x=>({id:x.id,text:x.text}));
+}
+
+function copyMissingJSONBatch(){
+ const active=getActiveTarget();
+
+ if(!active){
+  alert("Pilih batch dan sub-batch terlebih dahulu.");
+  return;
+ }
+
+ const missing=getMissingItems();
+
+ if(!missing.length){
+  alert("Sub-batch ini sudah lengkap. Tidak ada dialog yang perlu disalin.");
+  return;
+ }
+
+ const prompt=document.getElementById("systemPrompt").value.trim();
+
+ const output=
+  `${prompt}\n\nDATA JSON (${missing.length} dialog yang belum diterjemahkan di Batch ${active.b+1}, Sub ${active.s+1}):\n${JSON.stringify(missing,null,2)}`;
+
+ copyToClipboard(
+  output,
+  `Berhasil menyalin ${missing.length} dialog yang kurang dari Batch ${active.b+1}, Sub ${active.s+1}.`
+ );
+}
+
+function copyMissingIDsList(){
+ const active=getActiveTarget();
+
+ if(!active){
+  alert("Pilih batch dan sub-batch terlebih dahulu.");
+  return;
+ }
+
+ const missing=getMissingItems();
+
+ if(!missing.length){
+  alert("Sub-batch ini sudah lengkap. Tidak ada ID yang kurang.");
+  return;
+ }
+
+ const output=
+  `ID yang belum diterjemahkan di Batch ${active.b+1}, Sub ${active.s+1} (${missing.length}):\n${missing.map(x=>x.id).join(", ")}`;
+
+ copyToClipboard(
+  output,
+  `Berhasil menyalin ${missing.length} ID yang kurang dari sub-batch aktif.`
+ );
+}
+
+function copyBatchJSON(){
+ copyToClipboard(
+  document.getElementById("jsonBatchOutput").value,
+  "JSON berhasil disalin."
+ );
+}
+
+function copyCombinedPromptAndJSON(){
+ const p=document.getElementById("systemPrompt").value.trim();
+ const j=document.getElementById("jsonBatchOutput").value;
+
+ copyToClipboard(`${p}\n\nDATA JSON:\n${j}`,"Prompt + JSON berhasil disalin.");
+}
+
+function copyToClipboard(text,success){
+ if(navigator.clipboard?.writeText){
+  navigator.clipboard.writeText(text)
+   .then(()=>alert(success))
+   .catch(()=>fallbackCopy(text,success));
+ }else{
+  fallbackCopy(text,success);
+ }
+}
+
+function fallbackCopy(text,success){
+ const t=document.createElement("textarea");
+ t.value=text;
+ t.style.position="fixed";
+ t.style.opacity="0";
+ document.body.appendChild(t);
+ t.select();
+
+ try{
+  if(document.execCommand("copy")){
+   alert(success);
+  }else{
+   alert("Salin otomatis gagal. Silakan salin manual.");
+  }
+ }catch(e){
+  alert("Salin otomatis gagal. Silakan salin manual.");
+ }
+
+ t.remove();
+}
+
+function generateSRTFile(){
+ persistAppState();
+ const map=getSavedTranslationMap();
+
+ if(!map.size){
+  alert("Belum ada terjemahan valid yang tersimpan.");
+  return;
+ }
+
+ const missing=globalParsedData.filter(x=>!map.has(x.id));
+
+ if(missing.length&&!confirm(
+  `Masih ada ${missing.length} dialog belum diterjemahkan. Dialog tersebut akan memakai teks asli. Tetap unduh?`
+ ))return;
+
+ const content=globalParsedData
+  .map(x=>`${x.id}\n${x.timestamp}\n${map.get(x.id)??x.text}`)
+  .join("\n\n")+"\n";
+
+ const blob=new Blob([content],{type:"text/plain;charset=utf-8"});
+ const url=URL.createObjectURL(blob);
+ const a=document.createElement("a");
+
+ a.href=url;
+ a.download=`${originalFileName}.translated.srt`;
+
+ document.body.appendChild(a);
+ a.click();
+ a.remove();
+
+ setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+/* Autosave draf dan pengaturan; pemulihan dilakukan saat halaman dibuka. */document.getElementById("currentTranslatedInput").addEventListener("input",()=>{scheduleAutosave();inspectTranslationInput();});
+document.getElementById("systemPrompt").addEventListener("input",scheduleAutosave);
+document.getElementById("batchSize").addEventListener("change",scheduleAutosave);
+document.getElementById("subBatchSize").addEventListener("change",scheduleAutosave);
+document.getElementById("batchSelector").addEventListener("change",scheduleAutosave);
+document.getElementById("subBatchSelector").addEventListener("change",scheduleAutosave);
+document.getElementById("backupFile").addEventListener("change",function(){
+ const file=this.files?.[0];
+ if(file)importBackupJSON(file);
+ this.value="";
+});
+restoreAutosave();
+inspectTranslationInput();
+</script>
+</body>
+</html>
