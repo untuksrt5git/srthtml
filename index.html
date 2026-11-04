@@ -177,37 +177,68 @@ function setAdaptiveStatus(message,isError=false){
 function adaptiveTaskSummary(){
  const current=adaptiveQueue.current;
  const left=adaptiveQueue.tasks.length;
- if(!current)return `Antrean: ${left} tugas menunggu${adaptiveQueue.paused?" — dijeda":""}.`;
- return `Tugas aktif: ${current.items.length} dialog (ID ${current.items[0].id}–${current.items.at(-1).id}). ${left} tugas menunggu${adaptiveQueue.paused?" — dijeda":""}.`;
+ const saved=getSavedTranslationMap().size;
+ const total=globalParsedData.length;
+ const progress=total?Math.floor(saved/total*100):0;
+ const progressText=`Progres seluruh file: ${saved}/${total} dialog (${progress}%).`;
+ if(!current)return `${progressText} Antrean: ${left} tugas menunggu${adaptiveQueue.paused?" — dijeda":""}.`;
+ return `${progressText} Tugas aktif: Batch ${current.b+1}, Sub ${current.s+1}, ${current.items.length} dialog (ID ${current.items[0].id}–${current.items.at(-1).id}). ${left} tugas menunggu${adaptiveQueue.paused?" — dijeda":""}.`;
 }
 
 function startAdaptiveQueue(){
- const active=getActiveTarget();
- if(!active){alert("Muat SRT dan pilih sub-batch terlebih dahulu.");return;}
+ if(!globalParsedData.length){alert("Muat file SRT terlebih dahulu.");return;}
  const size=Number(document.getElementById("adaptiveChunkSize").value);
  const min=Number(document.getElementById("adaptiveMinSize").value);
  if(!Number.isInteger(size)||size<1||size>600||!Number.isInteger(min)||min<1||min>20||min>size){
   alert("Ukuran tugas tidak valid. Pastikan ukuran terkecil tidak lebih besar dari ukuran awal.");return;
  }
- const missing=getMissingItems();
- if(!missing.length){alert("Sub-batch aktif sudah lengkap.");return;}
+ const saved=getSavedTranslationMap();
  const tasks=[];
- for(let i=0;i<missing.length;i+=size)tasks.push({b:active.b,s:active.s,items:missing.slice(i,i+size),depth:0});
- adaptiveQueue={tasks,current:null,paused:false,message:""};
+ let missingTotal=0;
+ globalBatches.forEach((batch,b)=>{
+  batch.subs.forEach((sub,s)=>{
+   const missing=sub.filter(item=>!saved.has(item.id)).map(item=>({id:item.id,text:item.text}));
+   missingTotal+=missing.length;
+   for(let i=0;i<missing.length;i+=size)tasks.push({b,s,items:missing.slice(i,i+size),depth:0});
+  });
+ });
+ if(!missingTotal){setAdaptiveStatus("Antrean selesai. Seluruh file sudah diterjemahkan 100%.");return;}
+ adaptiveQueue={tasks,current:null,paused:false,message:"",scope:"all"};
  advanceAdaptiveQueue();
- setAdaptiveStatus(`Antrean dibuat untuk ${missing.length} dialog dalam ${tasks.length} tugas. ${adaptiveTaskSummary()}`);
+ setAdaptiveStatus(`Antrean seluruh file dibuat: ${missingTotal} dialog belum diterjemahkan dalam ${tasks.length} tugas. ${adaptiveTaskSummary()}`);
 }
 
 function advanceAdaptiveQueue(){
  if(adaptiveQueue.paused)return;
  if(!adaptiveQueue.current)adaptiveQueue.current=adaptiveQueue.tasks.shift()||null;
- if(!adaptiveQueue.current){setAdaptiveStatus("Antrean selesai. Semua tugas telah diproses.");return;}
+ if(!adaptiveQueue.current){
+  const saved=getSavedTranslationMap().size;
+  const total=globalParsedData.length;
+  const pct=total?Math.floor(saved/total*100):0;
+  autoGeminiMode=false;
+  setAdaptiveStatus(saved===total
+   ? `Antrean selesai. Seluruh file berhasil diterjemahkan 100% (${saved}/${total} dialog).`
+   : `Antrean berhenti: ${saved}/${total} dialog (${pct}%) tersimpan. Masih ada dialog yang belum selesai; antrean tidak akan ditandai 100%.`,saved!==total);
+  return;
+ }
  const t=adaptiveQueue.current;
  const target=globalBatches[t.b]?.subs[t.s];
- if(!target){adaptiveQueue.current=null;setAdaptiveStatus("Tugas dilewati: sub-batch sumber tidak ditemukan.",true);return;}
+ if(!target){
+  adaptiveQueue.paused=true;
+  setAdaptiveStatus("Tugas gagal: sub-batch sumber tidak ditemukan. Antrean dijeda agar tidak melewati dialog.",true);
+  return;
+ }
  const saved=getSavedTranslationMap();
  t.items=t.items.filter(x=>!saved.has(x.id));
  if(!t.items.length){adaptiveQueue.current=null;advanceAdaptiveQueue();return;}
+ const batchSelector=document.getElementById("batchSelector");
+ const subSelector=document.getElementById("subBatchSelector");
+ if(batchSelector.value!==String(t.b)){
+  batchSelector.value=String(t.b);
+  updateSubBatchDropdown();
+ }
+ subSelector.value=String(t.s);
+ displayBatchData();
  setAdaptiveStatus("Siap dikirim ke Gemini. "+adaptiveTaskSummary());
 }
 
@@ -240,17 +271,21 @@ function splitAdaptiveTask(task,reason){
 function processAdaptiveResponse(){
  const task=adaptiveQueue.current;
  if(!task){alert("Tidak ada tugas aktif.");return;}
- const active=getActiveTarget();
- if(!active||active.b!==task.b||active.s!==task.s){
-  alert(`Tugas ini berasal dari Batch ${task.b+1}, Sub ${task.s+1}. Pilih sub-batch tersebut sebelum memproses respons Gemini.`);return;
+ const target=globalBatches[task.b]?.subs[task.s];
+ if(!target){adaptiveQueue.paused=true;setAdaptiveStatus("Sub-batch sumber tugas tidak ditemukan. Antrean dijeda.",true);return;}
+ const batchSelector=document.getElementById("batchSelector");
+ const subSelector=document.getElementById("subBatchSelector");
+ if(batchSelector.value!==String(task.b)){
+  batchSelector.value=String(task.b);
+  updateSubBatchDropdown();
  }
+ subSelector.value=String(task.s);
+ displayBatchData();
  const raw=document.getElementById("currentTranslatedInput").value.trim();
- if(!raw){alert("Tempel respons Gemini terlebih dahulu.");return;}
+ if(!raw){adaptiveQueue.paused=true;setAdaptiveStatus("Respons Gemini kosong. Antrean dijeda dan tugas tetap tersimpan.",true);return;}
  const expected=task.items;
  try{
   const incoming=validateTranslation(raw,expected);
-  const target=globalBatches[task.b]?.subs[task.s];
-  if(!target)throw new Error("Sub-batch asal tugas tidak ditemukan.");
   const key=`${task.b}_${task.s}`;
   const merged=new Map();
   if(translationStorage[key]){
@@ -266,20 +301,20 @@ function processAdaptiveResponse(){
   adaptiveQueue.current=null;
   if(missing.length){
    const min=Number(document.getElementById("adaptiveMinSize").value)||1;
-   const mid=Math.ceil(missing.length/2);
    if(missing.length<=min){
     adaptiveQueue.current={b:task.b,s:task.s,items:missing,depth:(task.depth||0)+1};
     adaptiveQueue.paused=true;
-    setAdaptiveStatus(`${incoming.length} hasil valid disimpan, tetapi ${missing.length} dialog masih hilang (ID ${missing.map(x=>x.id).join(", ")}). Tugas sisa tetap disimpan sebagai tugas aktif untuk dicoba ulang.`,true);
+    setAdaptiveStatus(`${incoming.length} hasil valid disimpan, tetapi ${missing.length} dialog masih hilang (ID ${missing.map(x=>x.id).join(", ")}). Tugas sisa tetap disimpan untuk dicoba ulang.`,true);
     return;
    }
+   const mid=Math.ceil(missing.length/2);
    const taskA={b:task.b,s:task.s,items:missing.slice(0,mid),depth:(task.depth||0)+1};
    const taskB={b:task.b,s:task.s,items:missing.slice(mid),depth:(task.depth||0)+1};
    adaptiveQueue.tasks.unshift(taskB);
    adaptiveQueue.current=taskA;
    setAdaptiveStatus(`${incoming.length} dialog valid disimpan. ${missing.length} yang belum ada otomatis dipecah menjadi ${taskA.items.length} + ${taskB.items.length}. ${adaptiveTaskSummary()}`);
   }else{
-   setAdaptiveStatus(`${incoming.length} dialog valid disimpan. Tugas ini lengkap. Melanjutkan antrean…`);
+   setAdaptiveStatus(`Batch ${task.b+1}, Sub ${task.s+1} selesai. ${adaptiveTaskSummary()}`);
    advanceAdaptiveQueue();
   }
   persistAppState(false);
@@ -287,7 +322,7 @@ function processAdaptiveResponse(){
   const msg=err.message||"Respons tidak dapat dibaca.";
   if(/quota|rate.?limit|too many|limit reached|reached your limit|capacity|try again|network|offline|connection|sign.?in|log.?in|captcha|temporarily unavailable|temporarily|server error/i.test(msg)||/429|503|502/.test(msg)){
    adaptiveQueue.paused=true;
-   setAdaptiveStatus(`Kemungkinan gangguan sementara/login/limit, bukan masalah ukuran batch. Tugas tidak dipecah dan tidak dihapus. Perbaiki kondisi Gemini lalu tekan Salin Tugas Aktif untuk mencoba ulang. Detail: ${msg}`,true);
+   setAdaptiveStatus(`Kemungkinan gangguan sementara/login/limit. Tugas tetap tersimpan dan antrean dijeda. Detail: ${msg}`,true);
    return;
   }
   splitAdaptiveTask(task,msg);
@@ -295,10 +330,9 @@ function processAdaptiveResponse(){
  }
 }
 
-
 function startAutoGemini(){
  if(!globalParsedData.length){alert("Muat file SRT terlebih dahulu.");return;}
- if(!adaptiveQueue.current&&!adaptiveQueue.tasks.length){
+ if(adaptiveQueue.scope!=="all"||(!adaptiveQueue.current&&!adaptiveQueue.tasks.length)){
   startAdaptiveQueue();
   if(!adaptiveQueue.current&&!adaptiveQueue.tasks.length)return;
  }
