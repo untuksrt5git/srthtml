@@ -60,7 +60,9 @@
         button.getAttribute("title") || "",
         button.innerText || ""
       ].join(" ");
-      return /(stop generating|stop response|stop|berhenti|hentikan)/i.test(label);
+      // Jangan gunakan kata "stop" secara umum: tombol audio/fitur lain
+      // bisa tetap ada setelah jawaban selesai dan membuat antrean menunggu selamanya.
+      return /(stop generating|stop response|stop generation|berhenti membuat|hentikan pembuatan|hentikan respons|menghentikan respons)/i.test(label);
     });
   }
 
@@ -76,7 +78,7 @@
         if (text === last) stable++; else stable = 0;
         last = text;
         // Pastikan jawaban baru stabil dan Gemini tidak lagi menghasilkan teks.
-        if (stable >= 2 && !generating) return text;
+        if (stable >= 3 && !generating) return text;
       }
     }
     const latest = readLastAnswer();
