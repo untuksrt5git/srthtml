@@ -273,6 +273,8 @@ function processAdaptiveResponse(){
  if(!task){alert("Tidak ada tugas aktif.");return;}
  const target=globalBatches[task.b]?.subs[task.s];
  if(!target){adaptiveQueue.paused=true;setAdaptiveStatus("Sub-batch sumber tugas tidak ditemukan. Antrean dijeda.",true);return;}
+ const raw=document.getElementById("currentTranslatedInput").value.trim();
+ if(!raw){adaptiveQueue.paused=true;setAdaptiveStatus("Respons Gemini kosong. Antrean dijeda dan tugas tetap tersimpan.",true);return;}
  const batchSelector=document.getElementById("batchSelector");
  const subSelector=document.getElementById("subBatchSelector");
  if(batchSelector.value!==String(task.b)){
@@ -281,8 +283,6 @@ function processAdaptiveResponse(){
  }
  subSelector.value=String(task.s);
  displayBatchData();
- const raw=document.getElementById("currentTranslatedInput").value.trim();
- if(!raw){adaptiveQueue.paused=true;setAdaptiveStatus("Respons Gemini kosong. Antrean dijeda dan tugas tetap tersimpan.",true);return;}
  const expected=task.items;
  try{
   const incoming=validateTranslation(raw,expected);
