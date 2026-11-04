@@ -20,3 +20,11 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     if (appTab?.id) chrome.tabs.sendMessage(appTab.id,{type:"SRT_AUTOMATION_RESULT",result:message.result,error:message.error});
   });
 });
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (!message || message.type !== "SRT_GEMINI_PROGRESS") return;
+  chrome.tabs.query({url:"https://untuksrt5git.github.io/srthtml/*"}).then(tabs => {
+    const appTab = tabs.find(t => t.active) || tabs[0];
+    if (appTab?.id) chrome.tabs.sendMessage(appTab.id,{type:"SRT_AUTOMATION_STATUS",message:message.message});
+  });
+});
