@@ -66,6 +66,19 @@
     });
   }
 
+  function looksLikeCompleteJsonArray(text) {
+    if (!text) return false;
+    const start = text.indexOf("[");
+    const end = text.lastIndexOf("]");
+    if (start < 0 || end <= start) return false;
+    try {
+      const parsed = JSON.parse(text.slice(start, end + 1));
+      return Array.isArray(parsed) && parsed.length > 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
   async function waitForAnswer(previous, timeoutMs=240000) {
     const start = Date.now();
     let stable = 0, last = "";
@@ -77,8 +90,10 @@
       if (text && text !== previous) {
         if (text === last) stable++; else stable = 0;
         last = text;
-        // Pastikan jawaban baru stabil dan Gemini tidak lagi menghasilkan teks.
-        if (stable >= 3 && !generating) return text;
+        // Terima jawaban yang stabil setelah tombol stop hilang.
+        // Jika isi sudah berupa JSON array lengkap dan valid, jangan tertahan
+        // hanya karena indikator/tombol Gemini salah terbaca masih generating.
+        if (stable >= 3 && (!generating || looksLikeCompleteJsonArray(text))) return text;
       }
     }
     const latest = readLastAnswer();
