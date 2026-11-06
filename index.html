@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SRT Batch Translator Helper v2.8 Auto Gemini</title>
+<title>SRT Batch Translator Helper v2.9 Auto Gemini</title>
 <style>
 :root{--bg:#0f172a;--card:#1e293b;--text:#f8fafc;--primary:#3b82f6;--border:#334155;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444}
 *{box-sizing:border-box}
@@ -46,8 +46,8 @@ button.danger{background:var(--bad)}
 </head>
 <body>
 <div class="container">
-<h2>SRT Batch & Sub-Batch JSON Translator Helper v2.8</h2>
-<p class="note">Versi 2.8 — Auto Gemini Bridge, Auto Split, validasi hasil, dan autosave. Gunakan tab Gemini yang sudah login di Vivaldi.</p>
+<h2>SRT Batch & Sub-Batch JSON Translator Helper v2.9</h2>
+<p class="note">Versi 2.9 — Ukuran kiriman mengikuti Sub-Batch, Auto Split saat diperlukan, validasi hasil, dan autosave. Gunakan tab Gemini yang sudah login di Vivaldi.</p>
 
 <div class="form-group">
 <label for="srtFile">1. Pilih File Subtitle (.srt)</label>
@@ -114,10 +114,6 @@ ATURAN KETAT:
  <h3>Auto Translate + Auto Split + Auto Save</h3>
  <p class="note">Dengan ekstensi SRT Gemini Auto Bridge terpasang dan tab Gemini sudah login, aplikasi dapat mengirim tugas, membaca jawaban, memvalidasi ID, menyimpan hasil, lalu melanjutkan tugas berikutnya. Jika ekstensi belum terhubung, fungsi antrean manual tetap tersedia.</p>
  <div class="notice" id="extensionStatus" aria-live="polite">Status ekstensi: belum diuji. Buka halaman ini melalui GitHub Pages, lalu pasang ekstensi SRT Gemini Auto Bridge di Vivaldi.</div>
- <div class="grid">
-  <div class="form-group"><label for="adaptiveChunkSize">Ukuran awal tugas</label><input type="number" id="adaptiveChunkSize" value="500" min="1" max="600"></div>
-  <div class="form-group"><label for="adaptiveMinSize">Ukuran terkecil sebelum ditandai</label><input type="number" id="adaptiveMinSize" value="1" min="1" max="20"></div>
- </div>
  <button class="success" onclick="startAutoGemini()">Mulai Otomatis via Gemini</button>
  <button onclick="startAdaptiveQueue()">Buat Antrean Manual</button>
  <button onclick="copyAdaptiveTask()">Salin Tugas Aktif ke Gemini</button>
@@ -168,6 +164,7 @@ let restoringState=false;
 let autosaveTimer=null;
 let autosaveDisabled=false;
 let adaptiveQueue={tasks:[],current:null,paused:false,message:""};
+let builtBatchSize=60,builtSubBatchSize=20;
 let autoGeminiMode=false;
 let autoDispatchTimer=null;
 
@@ -193,11 +190,7 @@ function adaptiveTaskSummary(){
 
 function startAdaptiveQueue(){
  if(!globalParsedData.length){alert("Muat file SRT terlebih dahulu.");return;}
- const size=Number(document.getElementById("adaptiveChunkSize").value);
- const min=Number(document.getElementById("adaptiveMinSize").value);
- if(!Number.isInteger(size)||size<1||size>600||!Number.isInteger(min)||min<1||min>20||min>size){
-  alert("Ukuran tugas tidak valid. Pastikan ukuran terkecil tidak lebih besar dari ukuran awal.");return;
- }
+ rebuildBatchStructureIfNeeded();
  const saved=getSavedTranslationMap();
  const tasks=[];
  let missingTotal=0;
@@ -205,7 +198,7 @@ function startAdaptiveQueue(){
   batch.subs.forEach((sub,s)=>{
    const missing=sub.filter(item=>!saved.has(item.id)).map(item=>({id:item.id,text:item.text}));
    missingTotal+=missing.length;
-   for(let i=0;i<missing.length;i+=size)tasks.push({b,s,items:missing.slice(i,i+size),depth:0});
+   if(missing.length)tasks.push({b,s,items:missing,depth:0});
   });
  });
  if(!missingTotal){setAdaptiveStatus("Antrean selesai. Seluruh file sudah diterjemahkan 100%.");return;}
@@ -259,7 +252,7 @@ function copyAdaptiveTask(){
 }
 
 function splitAdaptiveTask(task,reason){
- const min=Number(document.getElementById("adaptiveMinSize").value)||1;
+ const min=1; // Auto-split berhenti pada satu dialog.
  if(task.items.length<=min){
   adaptiveQueue.paused=true;
   setAdaptiveStatus(`Gagal pada tugas terkecil (${task.items.length} dialog, ID ${task.items[0].id}). Antrean dijeda agar tidak mengulang tanpa batas. Penyebab: ${reason}`,true);
@@ -306,7 +299,7 @@ function processAdaptiveResponse(){
   updateStatusPanel();persistAppState(false);
   adaptiveQueue.current=null;
   if(missing.length){
-   const min=Number(document.getElementById("adaptiveMinSize").value)||1;
+   const min=1; // Auto-split berhenti pada satu dialog.
    if(missing.length<=min){
     const attempts=(task.attempts||0)+1;
     adaptiveQueue.current={b:task.b,s:task.s,items:missing,depth:(task.depth||0)+1,attempts};
@@ -440,8 +433,6 @@ function resetProject(){
  document.getElementById("backupFile").value="";
  document.getElementById("batchSize").value="60";
  document.getElementById("subBatchSize").value="20";
- document.getElementById("adaptiveChunkSize").value="500";
- document.getElementById("adaptiveMinSize").value="1";
  document.getElementById("systemPrompt").value=defaultPromptText;
  document.getElementById("batchSelector").innerHTML="";
  document.getElementById("subBatchSelector").innerHTML="";
@@ -467,6 +458,70 @@ function buildBatches(parsed,batchSize,subSize){
   batches.push({mainIndex:batches.length+1,subs});
  }
  return batches;
+}
+
+function rebuildBatchStructureIfNeeded(){
+ if(!globalParsedData.length)return false;
+ const batchSize=Number(document.getElementById("batchSize").value);
+ const subSize=Number(document.getElementById("subBatchSize").value);
+ if(!Number.isInteger(batchSize)||batchSize<1||batchSize>600||
+    !Number.isInteger(subSize)||subSize<0||subSize>600){
+  setAdaptiveStatus("Ukuran Batch Utama atau Sub-Batch tidak valid.",true);
+  return false;
+ }
+ if(batchSize===builtBatchSize&&subSize===builtSubBatchSize)return false;
+ if(autoGeminiMode){
+  document.getElementById("batchSize").value=builtBatchSize;
+  document.getElementById("subBatchSize").value=builtSubBatchSize;
+  setAdaptiveStatus("Jeda proses otomatis terlebih dahulu sebelum mengubah ukuran Batch/Sub-Batch.",true);
+  return false;
+ }
+
+ const active=getActiveTarget();
+ const activeId=active?.data?.[0]?.id;
+ const savedMap=getSavedTranslationMap();
+ if(active){
+  const draft=document.getElementById("currentTranslatedInput").value.trim();
+  if(draft){
+   try{validateTranslation(draft,active.data).forEach(x=>savedMap.set(x.id,x.text));}catch(e){}
+  }
+ }
+ globalBatches=buildBatches(globalParsedData,batchSize,subSize);
+ builtBatchSize=batchSize;
+ builtSubBatchSize=subSize;
+ translationStorage={};
+ globalBatches.forEach((batch,b)=>{
+  batch.subs.forEach((sub,s)=>{
+   const kept=sub.filter(item=>savedMap.has(item.id)).map(item=>({id:item.id,text:savedMap.get(item.id)}));
+   if(kept.length)translationStorage[`${b}_${s}`]=JSON.stringify(kept);
+  });
+ });
+ clearTimeout(autoDispatchTimer);
+ autoGeminiMode=false;
+ adaptiveQueue={tasks:[],current:null,paused:false,message:"",scope:"all"};
+ const selector=document.getElementById("batchSelector");
+ selector.innerHTML="";
+ globalBatches.forEach((g,i)=>{
+  const o=document.createElement("option");
+  o.value=i;
+  o.textContent=`Batch ${g.mainIndex} (ID ${g.subs[0][0].id}–${g.subs.at(-1).at(-1).id})`;
+  selector.appendChild(o);
+ });
+ let activeB=0,activeS=0,found=false;
+ if(activeId!==undefined){
+  globalBatches.some((g,b)=>g.subs.some((sub,s)=>{
+   if(sub.some(item=>item.id===activeId)){activeB=b;activeS=s;found=true;return true;}
+   return false;
+  }));
+ }
+ selector.value=String(activeB);
+ updateSubBatchDropdown();
+ document.getElementById("subBatchSelector").value=String(found?activeS:0);
+ displayBatchData();
+ updateStatusPanel();
+ persistAppState(false);
+ setAdaptiveStatus(`Ukuran diperbarui: Batch Utama ${batchSize}; Sub-Batch ${subSize===0?"tanpa pembagian":subSize+" dialog"}. Terjemahan tersimpan dipertahankan. Buat antrean otomatis kembali.`);
+ return true;
 }
 
 function getAppSnapshot(){
@@ -527,6 +582,8 @@ function applySnapshot(data){
   document.getElementById("subBatchSize").value=subSize;
   if(typeof data.prompt==="string")document.getElementById("systemPrompt").value=data.prompt;
   globalBatches=buildBatches(globalParsedData,batchSize,subSize);
+  builtBatchSize=batchSize;
+  builtSubBatchSize=subSize;
 
   const selector=document.getElementById("batchSelector");
   selector.innerHTML="";
@@ -676,6 +733,8 @@ function processSRT(){
   globalParsedData=parsed;
   translationStorage={};
   globalBatches=buildBatches(parsed,batchSize,subSize);
+   builtBatchSize=batchSize;
+   builtSubBatchSize=subSize;
 
   const selector=document.getElementById("batchSelector");
   selector.innerHTML="";
@@ -1156,8 +1215,8 @@ function generateSRTFile(){
 
 /* Autosave draf dan pengaturan; pemulihan dilakukan saat halaman dibuka. */document.getElementById("currentTranslatedInput").addEventListener("input",()=>{scheduleAutosave();inspectTranslationInput();});
 document.getElementById("systemPrompt").addEventListener("input",scheduleAutosave);
-document.getElementById("batchSize").addEventListener("change",scheduleAutosave);
-document.getElementById("subBatchSize").addEventListener("change",scheduleAutosave);
+document.getElementById("batchSize").addEventListener("change",()=>{rebuildBatchStructureIfNeeded();scheduleAutosave();});
+document.getElementById("subBatchSize").addEventListener("change",()=>{rebuildBatchStructureIfNeeded();scheduleAutosave();});
 document.getElementById("batchSelector").addEventListener("change",scheduleAutosave);
 document.getElementById("subBatchSelector").addEventListener("change",scheduleAutosave);
 document.getElementById("backupFile").addEventListener("change",function(){
