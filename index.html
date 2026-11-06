@@ -37,6 +37,27 @@ button.danger{background:var(--bad)}
 .subbox{background:#111827;border:1px solid var(--border);padding:14px;border-radius:8px;margin-top:14px}
 .note{font-size:13px;color:#cbd5e1;line-height:1.5}
 .notice{padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:#0f172a;margin:12px 0;font-size:13px}
+.batch-card{background:#242424;border-left:5px solid #f5b400;border-radius:10px;padding:18px 20px;margin:14px 0;color:#f3f4f6}
+.batch-card-head,.sub-card{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.batch-card-head h3{margin:0;font-size:19px}
+.batch-actions,.sub-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.batch-actions button,.sub-actions button{margin:0}
+.batch-split-controls{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px dashed #444;color:#cbd5e1}
+.batch-split-controls input{width:120px!important;padding:8px!important;background:#111!important;color:#60a5fa!important;font-size:18px;font-weight:700}
+.batch-split-controls button{margin:0}
+.sub-card-list{margin-top:18px;padding-top:16px;border-top:1px dashed #444}
+.sub-card{background:#1c1c1c;border:1px solid #484848;border-radius:9px;padding:14px 15px;margin:10px 0}
+.sub-card-title{font-size:17px}
+.batch-badge{display:inline-block;padding:7px 12px;border-radius:6px;background:#5b6068;color:white;font-size:13px;font-weight:800;white-space:nowrap}
+.batch-badge.done{background:#15803d;color:white}
+.batch-badge.partial{background:#d97706;color:#1c1917}
+.batch-cards-empty{color:#cbd5e1;padding:12px}
+@media(max-width:600px){
+ .batch-card{padding:14px}
+ .batch-card-head h3{font-size:17px}
+ .sub-card-title{font-size:15px}
+ .batch-split-controls{gap:9px}
+}
 @media(max-width:600px){
  .grid{grid-template-columns:1fr}
  .container{padding:15px}
@@ -46,8 +67,8 @@ button.danger{background:var(--bad)}
 </head>
 <body>
 <div class="container">
-<h2>SRT Batch & Sub-Batch JSON Translator Helper v2.9</h2>
-<p class="note">Versi 2.9 — Ukuran kiriman mengikuti Sub-Batch, Auto Split saat diperlukan, validasi hasil, dan autosave. Gunakan tab Gemini yang sudah login di Vivaldi.</p>
+<h2>SRT Batch & Sub-Batch JSON Translator Helper v3.0</h2>
+<p class="note">Versi 3.0 — Setiap Batch Utama dapat memiliki ukuran Sub-Batch sendiri, dengan Auto Split saat diperlukan, validasi hasil, dan autosave. Gunakan tab Gemini yang sudah login di Vivaldi.</p>
 
 <div class="form-group">
 <label for="srtFile">1. Pilih File Subtitle (.srt)</label>
@@ -66,22 +87,22 @@ button.danger{background:var(--bad)}
  <p class="note">Progres disimpan otomatis di browser HP ini. Ekspor JSON secara berkala untuk cadangan jika data browser terhapus atau Anda pindah perangkat.</p>
 </div>
 
-<div class="grid">
 <div class="form-group">
 <label for="batchSize">Jumlah dialog per Batch Utama</label>
 <input type="number" id="batchSize" value="60" min="1" max="600">
-</div>
-<div class="form-group">
-<label for="subBatchSize">Dialog per Sub-Batch (0 = tanpa sub-batch)</label>
-<input type="number" id="subBatchSize" value="20" min="0" max="600">
-</div>
+<p class="note">Setelah file dipecah, setiap Batch Utama memiliki pengaturan Sub-Batch sendiri. Ukuran satu Batch bisa berbeda dari Batch lainnya.</p>
 </div>
 
 <button onclick="processSRT()">Pecah ke JSON Batch</button>
 
 <div id="outputSection" class="hidden">
+<div class="section" id="batchOverviewSection">
+<h3>2. Batch Utama dan Sub-Batch</h3>
+<p class="note">Atur ukuran Sub-Batch pada masing-masing Batch Utama, lalu tekan <b>Cabang / Sub-Batch</b>. Setiap Batch boleh memakai ukuran yang berbeda.</p>
+<div id="batchCards"></div>
+</div>
 <div class="section">
-<h3>2. Prompt dan JSON Batch</h3>
+<h3>3. Prompt dan JSON Batch</h3>
 <div class="form-group">
 <label for="systemPrompt">Prompt (dapat diedit)</label>
 <textarea id="systemPrompt" rows="7">Terjemahkan teks pada value "text" di dalam JSON berikut ke dalam Bahasa Indonesia yang natural, intim, dan sehari-hari. Gunakan kata 'kontol' dan 'memek', serta frasa 'keluarkan pejunya di dalam' (jangan pakai kata slang kaku).
@@ -164,7 +185,7 @@ let restoringState=false;
 let autosaveTimer=null;
 let autosaveDisabled=false;
 let adaptiveQueue={tasks:[],current:null,paused:false,message:""};
-let builtBatchSize=60,builtSubBatchSize=20;
+let builtBatchSize=60;
 let autoGeminiMode=false;
 let autoDispatchTimer=null;
 
@@ -433,7 +454,7 @@ function resetProject(){
  document.getElementById("srtFile").value="";
  document.getElementById("backupFile").value="";
  document.getElementById("batchSize").value="60";
- document.getElementById("subBatchSize").value="20";
+
  document.getElementById("systemPrompt").value=defaultPromptText;
  document.getElementById("batchSelector").innerHTML="";
  document.getElementById("subBatchSelector").innerHTML="";
@@ -450,31 +471,155 @@ function resetProject(){
  showAutosaveStatus("Autosave: dihapus. Siap memulai proyek baru.");
 }
 
-function buildBatches(parsed,batchSize,subSize){
+function buildBatches(parsed,batchSize,defaultSubSize=0,batchSubSizes=null){
  const batches=[];
  for(let i=0;i<parsed.length;i+=batchSize){
-  const main=parsed.slice(i,i+batchSize),subs=[];
+  const main=parsed.slice(i,i+batchSize);
+  const batchIndex=batches.length;
+  const configured=Array.isArray(batchSubSizes)?Number(batchSubSizes[batchIndex]||0):Number(defaultSubSize||0);
+  const subSize=Number.isInteger(configured)&&configured>0?configured:0;
   const step=subSize>0?subSize:main.length;
+  const subs=[];
   for(let j=0;j<main.length;j+=step)subs.push(main.slice(j,j+step));
-  batches.push({mainIndex:batches.length+1,subs});
+  batches.push({
+   mainIndex:batchIndex+1,
+   startIndex:i,
+   endIndex:i+main.length-1,
+   items:main,
+   subSize,
+   subs
+  });
  }
  return batches;
+}
+
+function rebuildTranslationStorage(savedMap){
+ const next={};
+ globalBatches.forEach((batch,b)=>{
+  batch.subs.forEach((sub,s)=>{
+   const kept=sub.filter(item=>savedMap.has(item.id)).map(item=>({id:item.id,text:savedMap.get(item.id)}));
+   if(kept.length)next[`${b}_${s}`]=JSON.stringify(kept);
+  });
+ });
+ translationStorage=next;
+}
+
+function batchProgress(items,savedMap){
+ const count=items.filter(item=>savedMap.has(item.id)).length;
+ if(count===items.length)return {label:"SELESAI",className:"done"};
+ if(count>0)return {label:`SEBAGIAN (${count}/${items.length})`,className:"partial"};
+ return {label:"BELUM SELESAI",className:""};
+}
+
+function renderBatchCards(){
+ const host=document.getElementById("batchCards");
+ if(!host)return;
+ if(!globalBatches.length){host.innerHTML='<div class="batch-cards-empty">Belum ada Batch. Pilih file SRT lalu tekan Pecah ke JSON Batch.</div>';return;}
+ const saved=getSavedTranslationMap();
+ host.innerHTML=globalBatches.map((batch,b)=>{
+  const mainStatus=batchProgress(batch.items,saved);
+  let offset=batch.startIndex;
+  const children=batch.subs.length>1?batch.subs.map((sub,s)=>{
+   const from=offset,to=offset+sub.length-1;
+   offset+=sub.length;
+   const status=batchProgress(sub,saved);
+   return `<div class="sub-card">
+    <div class="sub-card-title"><b>Batch ${b+1} (Sub ${s+1})</b> <span>(Indeks ${from} - ${to})</span></div>
+    <div class="sub-actions"><span class="batch-badge ${status.className}">${status.label}</span><button class="success" onclick="copySubBatchPrompt(${b},${s})">Copy Sub-Prompt</button></div>
+   </div>`;
+  }).join(""):"";
+  const suggested=batch.subSize||Math.min(100,batch.items.length);
+  return `<div class="batch-card">
+   <div class="batch-card-head">
+    <h3>BATCH ${b+1} (Indeks ${batch.startIndex} - ${batch.endIndex})</h3>
+    <div class="batch-actions"><span class="batch-badge ${mainStatus.className}">${mainStatus.label}</span><button class="success" onclick="copyMainBatchPrompt(${b})">Copy Prompt</button></div>
+   </div>
+   <div class="batch-split-controls">
+    <span>Pecah batch ini jadi sub-batch kecil:</span>
+    <input type="number" id="splitSize-${b}" min="1" max="600" value="${suggested}" aria-label="Ukuran Sub-Batch Batch ${b+1}">
+    <button class="warning" onclick="splitMainBatch(${b})">Cabang / Sub-Batch</button>
+   </div>
+   ${children?'<div class="sub-card-list">'+children+'</div>':""}
+  </div>`;
+ }).join("");
+}
+
+function splitMainBatch(batchIndex){
+ if(autoGeminiMode){
+  alert("Jeda proses otomatis terlebih dahulu sebelum mengubah Sub-Batch.");
+  return;
+ }
+ const batch=globalBatches[batchIndex];
+ const input=document.getElementById(`splitSize-${batchIndex}`);
+ const size=Number(input?.value);
+ if(!batch){alert("Batch tidak ditemukan.");return;}
+ if(!Number.isInteger(size)||size<1||size>600){
+  alert("Ukuran Sub-Batch harus berupa angka 1 sampai 600.");
+  return;
+ }
+ const active=getActiveTarget();
+ const activeId=active?.data?.[0]?.id;
+ const savedMap=getSavedTranslationMap();
+ if(active){
+  const draft=document.getElementById("currentTranslatedInput").value.trim();
+  if(draft){
+   try{validateTranslation(draft,active.data).forEach(x=>savedMap.set(x.id,x.text));}catch(e){}
+  }
+ }
+ batch.subSize=size;
+ batch.subs=[];
+ for(let i=0;i<batch.items.length;i+=size)batch.subs.push(batch.items.slice(i,i+size));
+ rebuildTranslationStorage(savedMap);
+
+ clearTimeout(autoDispatchTimer);
+ autoGeminiMode=false;
+ adaptiveQueue={tasks:[],current:null,paused:false,message:"",scope:"all"};
+
+ const selector=document.getElementById("batchSelector");
+ const subSelector=document.getElementById("subBatchSelector");
+ if(Number(selector.value)===batchIndex){
+  updateSubBatchDropdown();
+  let activeSub=0;
+  if(activeId!==undefined){
+   const found=batch.subs.findIndex(sub=>sub.some(item=>item.id===activeId));
+   if(found>=0)activeSub=found;
+  }
+  subSelector.value=String(activeSub);
+  displayBatchData();
+ }
+ renderBatchCards();
+ updateStatusPanel();
+ persistAppState(false);
+ setAdaptiveStatus(`Batch ${batchIndex+1} dibagi menjadi ${batch.subs.length} Sub-Batch dengan masing-masing maksimal ${size} dialog. Hasil terjemahan yang sudah tersimpan tetap dipertahankan. Buat antrean otomatis kembali untuk memakai susunan terbaru.`);
+}
+
+function copyMainBatchPrompt(batchIndex){
+ const batch=globalBatches[batchIndex];
+ if(!batch)return;
+ const prompt=document.getElementById("systemPrompt").value.trim();
+ const items=batch.items.map(item=>({id:item.id,text:item.text}));
+ copyToClipboard(`${prompt}\\n\\nDATA JSON (Batch ${batchIndex+1}; ${items.length} dialog):\\n${JSON.stringify(items,null,2)}`,`Prompt Batch ${batchIndex+1} berhasil disalin.`);
+}
+
+function copySubBatchPrompt(batchIndex,subIndex){
+ const sub=globalBatches[batchIndex]?.subs[subIndex];
+ if(!sub)return;
+ const prompt=document.getElementById("systemPrompt").value.trim();
+ const items=sub.map(item=>({id:item.id,text:item.text}));
+ copyToClipboard(`${prompt}\\n\\nDATA JSON (Batch ${batchIndex+1}, Sub-Batch ${subIndex+1}; ${items.length} dialog):\\n${JSON.stringify(items,null,2)}`,`Prompt Batch ${batchIndex+1}, Sub-Batch ${subIndex+1} berhasil disalin.`);
 }
 
 function rebuildBatchStructureIfNeeded(){
  if(!globalParsedData.length)return false;
  const batchSize=Number(document.getElementById("batchSize").value);
- const subSize=Number(document.getElementById("subBatchSize").value);
- if(!Number.isInteger(batchSize)||batchSize<1||batchSize>600||
-    !Number.isInteger(subSize)||subSize<0||subSize>600){
-  setAdaptiveStatus("Ukuran Batch Utama atau Sub-Batch tidak valid.",true);
+ if(!Number.isInteger(batchSize)||batchSize<1||batchSize>600){
+  setAdaptiveStatus("Ukuran Batch Utama tidak valid.",true);
   return null;
  }
- if(batchSize===builtBatchSize&&subSize===builtSubBatchSize)return false;
+ if(batchSize===builtBatchSize)return false;
  if(autoGeminiMode){
   document.getElementById("batchSize").value=builtBatchSize;
-  document.getElementById("subBatchSize").value=builtSubBatchSize;
-  setAdaptiveStatus("Jeda proses otomatis terlebih dahulu sebelum mengubah ukuran Batch/Sub-Batch.",true);
+  setAdaptiveStatus("Jeda proses otomatis terlebih dahulu sebelum mengubah ukuran Batch Utama.",true);
   return null;
  }
 
@@ -487,53 +632,49 @@ function rebuildBatchStructureIfNeeded(){
    try{validateTranslation(draft,active.data).forEach(x=>savedMap.set(x.id,x.text));}catch(e){}
   }
  }
- globalBatches=buildBatches(globalParsedData,batchSize,subSize);
+ globalBatches=buildBatches(globalParsedData,batchSize,0);
  builtBatchSize=batchSize;
- builtSubBatchSize=subSize;
- translationStorage={};
- globalBatches.forEach((batch,b)=>{
-  batch.subs.forEach((sub,s)=>{
-   const kept=sub.filter(item=>savedMap.has(item.id)).map(item=>({id:item.id,text:savedMap.get(item.id)}));
-   if(kept.length)translationStorage[`${b}_${s}`]=JSON.stringify(kept);
-  });
- });
+ rebuildTranslationStorage(savedMap);
  clearTimeout(autoDispatchTimer);
  autoGeminiMode=false;
  adaptiveQueue={tasks:[],current:null,paused:false,message:"",scope:"all"};
+
  const selector=document.getElementById("batchSelector");
  selector.innerHTML="";
  globalBatches.forEach((g,i)=>{
   const o=document.createElement("option");
   o.value=i;
-  o.textContent=`Batch ${g.mainIndex} (ID ${g.subs[0][0].id}–${g.subs.at(-1).at(-1).id})`;
+  o.textContent=`Batch ${g.mainIndex} (Indeks ${g.startIndex}–${g.endIndex})`;
   selector.appendChild(o);
  });
- let activeB=0,activeS=0,found=false;
+ let activeB=0,activeS=0;
  if(activeId!==undefined){
-  globalBatches.some((g,b)=>g.subs.some((sub,s)=>{
-   if(sub.some(item=>item.id===activeId)){activeB=b;activeS=s;found=true;return true;}
+  globalBatches.some((g,b)=>{
+   const found=g.subs.findIndex(sub=>sub.some(item=>item.id===activeId));
+   if(found>=0){activeB=b;activeS=found;return true;}
    return false;
-  }));
+  });
  }
  selector.value=String(activeB);
  updateSubBatchDropdown();
- document.getElementById("subBatchSelector").value=String(found?activeS:0);
+ document.getElementById("subBatchSelector").value=String(activeS);
  displayBatchData();
  updateStatusPanel();
+ renderBatchCards();
  persistAppState(false);
- setAdaptiveStatus(`Ukuran diperbarui: Batch Utama ${batchSize}; Sub-Batch ${subSize===0?"tanpa pembagian":subSize+" dialog"}. Terjemahan tersimpan dipertahankan. Buat antrean otomatis kembali.`);
+ setAdaptiveStatus(`Ukuran Batch Utama diperbarui menjadi ${batchSize}. Pengaturan Sub-Batch diatur kembali per Batch; hasil terjemahan yang tersimpan dipertahankan. Silakan cabang masing-masing Batch sesuai kebutuhan.`);
  return true;
 }
 
 function getAppSnapshot(){
  return {
   app:"SRT Batch Translator",
-  version:2.9,
+  version:3.0,
   adaptiveQueue,
   savedAt:new Date().toISOString(),
   originalFileName,
   batchSize:Number(document.getElementById("batchSize").value)||60,
-  subBatchSize:Number(document.getElementById("subBatchSize").value)||0,
+  batchSubSizes:globalBatches.map(batch=>batch.subSize||0),
   prompt:document.getElementById("systemPrompt").value,
   parsedData:globalParsedData,
   translationStorage,
@@ -567,10 +708,14 @@ function applySnapshot(data){
   throw new Error("Cadangan tidak berisi data SRT yang valid.");
  }
  const batchSize=Number(data.batchSize)||60;
- const subSize=Number(data.subBatchSize)||0;
+ const legacySubSize=Number(data.subBatchSize)||0;
+ const batchConfigs=Array.isArray(data.batchSubSizes)?data.batchSubSizes:null;
  if(!Number.isInteger(batchSize)||batchSize<1||batchSize>600||
-    !Number.isInteger(subSize)||subSize<0||subSize>600){
+    !Number.isInteger(legacySubSize)||legacySubSize<0||legacySubSize>600){
   throw new Error("Pengaturan ukuran batch di dalam cadangan tidak valid.");
+ }
+ if(batchConfigs&&batchConfigs.some(x=>!Number.isInteger(Number(x))||Number(x)<0||Number(x)>600)){
+  throw new Error("Pengaturan Sub-Batch per Batch di dalam cadangan tidak valid.");
  }
  restoringState=true;
  autosaveDisabled=false;
@@ -578,21 +723,20 @@ function applySnapshot(data){
   globalParsedData=data.parsedData;
   originalFileName=data.originalFileName||"subtitle";
   translationStorage=(data.translationStorage&&typeof data.translationStorage==="object")?data.translationStorage:{};
-  // Antrean lama dibangun dengan pemotongan ukuran tugas tambahan; susun ulang dari dialog yang belum tersimpan.
   adaptiveQueue={tasks:[],current:null,paused:false,message:"",scope:"all"};
   document.getElementById("batchSize").value=batchSize;
-  document.getElementById("subBatchSize").value=subSize;
   if(typeof data.prompt==="string")document.getElementById("systemPrompt").value=data.prompt;
-  globalBatches=buildBatches(globalParsedData,batchSize,subSize);
+
+  // Memulihkan susunan lama v2.9 atau konfigurasi per-Batch v3.0.
+  globalBatches=buildBatches(globalParsedData,batchSize,legacySubSize,batchConfigs);
   builtBatchSize=batchSize;
-  builtSubBatchSize=subSize;
 
   const selector=document.getElementById("batchSelector");
   selector.innerHTML="";
   globalBatches.forEach((g,i)=>{
    const o=document.createElement("option");
    o.value=i;
-   o.textContent=`Batch ${g.mainIndex} (ID ${g.subs[0][0].id}–${g.subs.at(-1).at(-1).id})`;
+   o.textContent=`Batch ${g.mainIndex} (Indeks ${g.startIndex}–${g.endIndex})`;
    selector.appendChild(o);
   });
 
@@ -608,6 +752,7 @@ function applySnapshot(data){
    document.getElementById("currentTranslatedInput").value=data.draft;
   }
   updateStatusPanel();
+  renderBatchCards();
   if(adaptiveQueue.message)document.getElementById("adaptiveStatus").textContent=adaptiveQueue.message;
  }finally{
   restoringState=false;
@@ -696,13 +841,11 @@ function parseSRT(source){
 function processSRT(){
  const input=document.getElementById("srtFile");
  const batchSize=Number(document.getElementById("batchSize").value);
- const subSize=Number(document.getElementById("subBatchSize").value);
-
  if(!input.files.length){
   alert("Pilih file SRT terlebih dahulu.");
   return;
  }
- if(!Number.isInteger(batchSize)||batchSize<1||batchSize>600||!Number.isInteger(subSize)||subSize<0||subSize>600){
+ if(!Number.isInteger(batchSize)||batchSize<1||batchSize>600){
   alert("Ukuran batch tidak valid.");
   return;
  }
@@ -737,9 +880,8 @@ function processSRT(){
   clearTimeout(autoDispatchTimer);
   adaptiveQueue={tasks:[],current:null,paused:false,message:"",scope:"all"};
   autoGeminiMode=false;
-  globalBatches=buildBatches(parsed,batchSize,subSize);
-   builtBatchSize=batchSize;
-   builtSubBatchSize=subSize;
+  globalBatches=buildBatches(parsed,batchSize,0);
+  builtBatchSize=batchSize;
 
   const selector=document.getElementById("batchSelector");
   selector.innerHTML="";
@@ -754,6 +896,7 @@ function processSRT(){
   document.getElementById("outputSection").classList.remove("hidden");
   updateSubBatchDropdown();
   updateStatusPanel();
+  renderBatchCards();
   persistAppState();
 
   alert(`Berhasil membaca ${parsed.length} dialog dalam ${globalBatches.length} batch utama.`);
@@ -1074,6 +1217,7 @@ function updateStatusPanel(){
 
  document.getElementById("missingSummary").textContent=
   `Dialog tersimpan valid: ${map.size} dari ${globalParsedData.length}. Belum diterjemahkan: ${missing.length} dialog.`;
+ renderBatchCards();
 }
 
 /* PERUBAHAN v2.3:
@@ -1221,7 +1365,7 @@ function generateSRTFile(){
 /* Autosave draf dan pengaturan; pemulihan dilakukan saat halaman dibuka. */document.getElementById("currentTranslatedInput").addEventListener("input",()=>{scheduleAutosave();inspectTranslationInput();});
 document.getElementById("systemPrompt").addEventListener("input",scheduleAutosave);
 document.getElementById("batchSize").addEventListener("change",()=>{rebuildBatchStructureIfNeeded();scheduleAutosave();});
-document.getElementById("subBatchSize").addEventListener("change",()=>{rebuildBatchStructureIfNeeded();scheduleAutosave();});
+
 document.getElementById("batchSelector").addEventListener("change",scheduleAutosave);
 document.getElementById("subBatchSelector").addEventListener("change",scheduleAutosave);
 document.getElementById("backupFile").addEventListener("change",function(){
