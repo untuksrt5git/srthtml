@@ -9,7 +9,7 @@
 :root{--bg:#0f172a;--card:#1e293b;--text:#f8fafc;--primary:#3b82f6;--border:#334155;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444}
 *{box-sizing:border-box}
 body{font-family:system-ui,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:16px;display:flex;justify-content:center}
-.container{width:100%;max-width:950px;background:var(--card);padding:20px;border-radius:12px;box-shadow:0 4px 20px #0005}
+.container{width:100%;max-width:1400px;background:var(--card);padding:20px;border-radius:12px;box-shadow:0 4px 20px #0005}
 h2{margin-top:0;color:#60a5fa}
 .form-group{margin-bottom:16px}
 label{display:block;margin-bottom:8px;font-weight:600}
@@ -145,7 +145,7 @@ ATURAN KETAT:
 </div>
 
 <div class="section">
-<h3>3. Hasil Terjemahan dan Progress</h3>
+<h3>4. Hasil Terjemahan dan Progress</h3>
 <label>Progress: <span id="progressText">0%</span></label>
 <div class="progress"><div id="progressBar" class="bar"></div></div>
 <div class="notice" id="missingSummary">Belum ada data.</div>
@@ -168,7 +168,7 @@ ATURAN KETAT:
 </div>
 
 <div class="section">
-<h3>4. Simpan dan Cadangkan Hasil</h3>
+<h3>5. Simpan dan Cadangkan Hasil</h3>
 <button class="success" onclick="exportBackupJSON()">Ekspor Cadangan JSON</button>
 <p class="note">Cadangan JSON berisi seluruh progres proyek agar dapat dipulihkan nanti atau dipindahkan ke perangkat lain.</p>
 <button class="success" onclick="generateSRTFile()">Download SRT hasil terjemahan</button>
@@ -598,7 +598,7 @@ function copyMainBatchPrompt(batchIndex){
  if(!batch)return;
  const prompt=document.getElementById("systemPrompt").value.trim();
  const items=batch.items.map(item=>({id:item.id,text:item.text}));
- copyToClipboard(`${prompt}\\n\\nDATA JSON (Batch ${batchIndex+1}; ${items.length} dialog):\\n${JSON.stringify(items,null,2)}`,`Prompt Batch ${batchIndex+1} berhasil disalin.`);
+ copyToClipboard(`${prompt}\n\nDATA JSON (Batch ${batchIndex+1}; ${items.length} dialog):\n${JSON.stringify(items,null,2)}`,`Prompt Batch ${batchIndex+1} berhasil disalin.`);
 }
 
 function copySubBatchPrompt(batchIndex,subIndex){
@@ -606,7 +606,7 @@ function copySubBatchPrompt(batchIndex,subIndex){
  if(!sub)return;
  const prompt=document.getElementById("systemPrompt").value.trim();
  const items=sub.map(item=>({id:item.id,text:item.text}));
- copyToClipboard(`${prompt}\\n\\nDATA JSON (Batch ${batchIndex+1}, Sub-Batch ${subIndex+1}; ${items.length} dialog):\\n${JSON.stringify(items,null,2)}`,`Prompt Batch ${batchIndex+1}, Sub-Batch ${subIndex+1} berhasil disalin.`);
+ copyToClipboard(`${prompt}\n\nDATA JSON (Batch ${batchIndex+1}, Sub-Batch ${subIndex+1}; ${items.length} dialog):\n${JSON.stringify(items,null,2)}`,`Prompt Batch ${batchIndex+1}, Sub-Batch ${subIndex+1} berhasil disalin.`);
 }
 
 function rebuildBatchStructureIfNeeded(){
