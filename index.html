@@ -190,7 +190,8 @@ function adaptiveTaskSummary(){
 
 function startAdaptiveQueue(){
  if(!globalParsedData.length){alert("Muat file SRT terlebih dahulu.");return;}
- rebuildBatchStructureIfNeeded();
+ const rebuilt=rebuildBatchStructureIfNeeded();
+ if(rebuilt===null)return;
  const saved=getSavedTranslationMap();
  const tasks=[];
  let missingTotal=0;
@@ -467,14 +468,14 @@ function rebuildBatchStructureIfNeeded(){
  if(!Number.isInteger(batchSize)||batchSize<1||batchSize>600||
     !Number.isInteger(subSize)||subSize<0||subSize>600){
   setAdaptiveStatus("Ukuran Batch Utama atau Sub-Batch tidak valid.",true);
-  return false;
+  return null;
  }
  if(batchSize===builtBatchSize&&subSize===builtSubBatchSize)return false;
  if(autoGeminiMode){
   document.getElementById("batchSize").value=builtBatchSize;
   document.getElementById("subBatchSize").value=builtSubBatchSize;
   setAdaptiveStatus("Jeda proses otomatis terlebih dahulu sebelum mengubah ukuran Batch/Sub-Batch.",true);
-  return false;
+  return null;
  }
 
  const active=getActiveTarget();
@@ -527,7 +528,7 @@ function rebuildBatchStructureIfNeeded(){
 function getAppSnapshot(){
  return {
   app:"SRT Batch Translator",
-  version:2.8,
+  version:2.9,
   adaptiveQueue,
   savedAt:new Date().toISOString(),
   originalFileName,
@@ -577,7 +578,8 @@ function applySnapshot(data){
   globalParsedData=data.parsedData;
   originalFileName=data.originalFileName||"subtitle";
   translationStorage=(data.translationStorage&&typeof data.translationStorage==="object")?data.translationStorage:{};
-  adaptiveQueue=(data.adaptiveQueue&&typeof data.adaptiveQueue==="object")?data.adaptiveQueue:{tasks:[],current:null,paused:false,message:""};
+  // Antrean lama dibangun dengan pemotongan ukuran tugas tambahan; susun ulang dari dialog yang belum tersimpan.
+  adaptiveQueue={tasks:[],current:null,paused:false,message:"",scope:"all"};
   document.getElementById("batchSize").value=batchSize;
   document.getElementById("subBatchSize").value=subSize;
   if(typeof data.prompt==="string")document.getElementById("systemPrompt").value=data.prompt;
@@ -732,6 +734,9 @@ function processSRT(){
   autosaveDisabled=false;
   globalParsedData=parsed;
   translationStorage={};
+  clearTimeout(autoDispatchTimer);
+  adaptiveQueue={tasks:[],current:null,paused:false,message:"",scope:"all"};
+  autoGeminiMode=false;
   globalBatches=buildBatches(parsed,batchSize,subSize);
    builtBatchSize=batchSize;
    builtSubBatchSize=subSize;
