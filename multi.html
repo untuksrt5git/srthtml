@@ -416,17 +416,14 @@ function handleAutoGeminiMessage(event){
  if(d.type==="SRT_AUTO_ACK"){
   const status=document.getElementById("extensionStatus");
   if(d.ok){if(status)status.textContent="Status ekstensi: terhubung ke tab Gemini.";}
-  else{if(status)status.textContent="Status ekstensi: gagal terhubung — "+(d.error||"tidak diketahui");autoGeminiMode=false;adaptiveQueue.paused=true;setAdaptiveStatus("Ekstensi tidak dapat menerima tugas: "+(d.error||"tidak diketahui")+". Periksa pemasangan ekstensi.",true);}
+  else{if(status)status.textContent="Status ekstensi: gagal terhubung — "+(d.error||"tidak diketahui");autoGeminiMode=false;multiFileAutoMode=false;adaptiveQueue.paused=true;setAdaptiveStatus("Ekstensi tidak dapat menerima tugas: "+(d.error||"tidak diketahui")+". Periksa pemasangan ekstensi.",true);}
   return;
  }
- if(d.type==="SRT_AUTO_STATUS"){
-  setAdaptiveStatus("Gemini: "+d.message);
-  return;
- }
+ if(d.type==="SRT_AUTO_STATUS"){setAdaptiveStatus("Gemini: "+d.message);return;}
  if(d.type==="SRT_AUTO_RESULT"){
-  if(d.error){autoGeminiMode=false;adaptiveQueue.paused=true;setAdaptiveStatus("Otomatis dijeda: "+d.error+". Tugas tetap tersimpan; periksa Gemini lalu mulai lagi.",true);return;}
+  if(d.error){autoGeminiMode=false;multiFileAutoMode=false;adaptiveQueue.paused=true;setAdaptiveStatus("Otomatis dijeda: "+d.error+". Tugas tetap tersimpan; periksa Gemini lalu mulai lagi.",true);return;}
   if(typeof d.result!=="string"||!d.result.trim()){
-   autoGeminiMode=false;adaptiveQueue.paused=true;setAdaptiveStatus("Gemini tidak mengembalikan teks jawaban. Tugas tetap tersimpan untuk diperiksa.",true);return;
+   autoGeminiMode=false;multiFileAutoMode=false;adaptiveQueue.paused=true;setAdaptiveStatus("Gemini tidak mengembalikan teks jawaban. Tugas tetap tersimpan untuk diperiksa.",true);return;
   }
   document.getElementById("currentTranslatedInput").value=d.result;
   inspectTranslationInput();
