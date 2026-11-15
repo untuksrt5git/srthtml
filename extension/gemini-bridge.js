@@ -4,6 +4,7 @@
   window.__SRT_GEMINI_BRIDGE_READY__ = true;
 
   let busy = false;
+  const completedTaskIds = new Set();
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const status = (message,returnTabId) => chrome.runtime.sendMessage({type:"SRT_GEMINI_PROGRESS",message,returnTabId});
 
@@ -101,8 +102,19 @@
     throw new Error("Waktu tunggu jawaban Gemini habis. Jawaban belum berhasil dibaca otomatis; periksa tab Gemini.");
   }
 
+  function sendFinished(payload, taskId) {
+    if (taskId) {
+      completedTaskIds.add(taskId);
+      if (completedTaskIds.size > 30) completedTaskIds.delete(completedTaskIds.values().next().value);
+    }
+    chrome.runtime.sendMessage({type:"SRT_GEMINI_FINISHED",...payload,taskId:taskId||null});
+  }
+
   async function run(task) {
-    if (busy) throw new Error("Ekstensi masih memproses tugas sebelumnya.");
+    const taskId = task?.taskId || null;
+    if (taskId && completedTaskIds.has(taskId)) return;
+    // Abaikan pemanggilan tambahan saat satu tugas masih diproses.
+    if (busy) return;
     if (!task || !Array.isArray(task.items) || !task.items.length) throw new Error("Data tugas kosong atau tidak valid.");
     busy = true;
     try {
@@ -126,9 +138,9 @@
       send.click();
       status("Prompt terkirim. Menunggu jawaban Gemini…",task.returnTabId);
       const result = await waitForAnswer(previous);
-      chrome.runtime.sendMessage({type:"SRT_GEMINI_FINISHED",result,returnTabId:task.returnTabId});
+      sendFinished({result,returnTabId:task.returnTabId},taskId);
     } catch (error) {
-      chrome.runtime.sendMessage({type:"SRT_GEMINI_FINISHED",error:error.message || String(error),returnTabId:task?.returnTabId});
+      sendFinished({error:error.message || String(error),returnTabId:task?.returnTabId},taskId);
     } finally {
       busy = false;
     }
