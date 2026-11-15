@@ -5,7 +5,7 @@
 
   let busy = false;
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const status = message => chrome.runtime.sendMessage({type:"SRT_GEMINI_PROGRESS",message});
+  const status = (message,returnTabId) => chrome.runtime.sendMessage({type:"SRT_GEMINI_PROGRESS",message,returnTabId});
 
   function findEditor() {
     return document.querySelector('rich-textarea [contenteditable="true"]') ||
@@ -106,7 +106,7 @@
     if (!task || !Array.isArray(task.items) || !task.items.length) throw new Error("Data tugas kosong atau tidak valid.");
     busy = true;
     try {
-      status("Menyiapkan prompt dan JSON…");
+      status("Menyiapkan prompt dan JSON…",task.returnTabId);
       const previous = readLastAnswer();
       const editor = findEditor();
       if (!editor) throw new Error("Kolom pesan Gemini tidak ditemukan. Pastikan halaman Gemini selesai dimuat.");
@@ -124,11 +124,11 @@
       const send = findSendButton();
       if (!send) throw new Error("Tombol Kirim Gemini tidak ditemukan. Periksa kolom pesan.");
       send.click();
-      status("Prompt terkirim. Menunggu jawaban Gemini…");
+      status("Prompt terkirim. Menunggu jawaban Gemini…",task.returnTabId);
       const result = await waitForAnswer(previous);
-      chrome.runtime.sendMessage({type:"SRT_GEMINI_FINISHED",result});
+      chrome.runtime.sendMessage({type:"SRT_GEMINI_FINISHED",result,returnTabId:task.returnTabId});
     } catch (error) {
-      chrome.runtime.sendMessage({type:"SRT_GEMINI_FINISHED",error:error.message || String(error)});
+      chrome.runtime.sendMessage({type:"SRT_GEMINI_FINISHED",error:error.message || String(error),returnTabId:task?.returnTabId});
     } finally {
       busy = false;
     }
