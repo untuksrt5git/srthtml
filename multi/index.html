@@ -424,7 +424,7 @@ function handleAutoGeminiMessage(event){
  if(event.source!==window||event.data?.source!=="srt-gemini-extension")return;
  const d=event.data;
  if(d.type==="SRT_AUTO_ACK"){
-  if(d.taskId&&d.taskId!==autoGeminiActiveTaskId)return;
+  if((d.taskId&&d.taskId!==autoGeminiActiveTaskId)||(!d.taskId&&!autoGeminiInFlight))return;
   const status=document.getElementById("extensionStatus");
   if(d.ok){if(status)status.textContent="Status ekstensi: terhubung ke tab Gemini.";}
   else{
@@ -440,8 +440,9 @@ function handleAutoGeminiMessage(event){
  }
  if(d.type==="SRT_AUTO_STATUS"){setAdaptiveStatus("Gemini: "+d.message);return;}
  if(d.type==="SRT_AUTO_RESULT"){
-  // Hanya respons dari tugas aktif yang boleh diproses. Respons lama/duplikat diabaikan.
-  if(!d.taskId||d.taskId!==autoGeminiActiveTaskId)return;
+  // Terima ekstensi lama tanpa taskId hanya bila satu tugas sedang menunggu.
+  // Respons lama/duplikat diabaikan setelah kunci tugas dilepas.
+  if(d.taskId ? d.taskId!==autoGeminiActiveTaskId : !autoGeminiInFlight)return;
   autoGeminiInFlight=false;
   autoGeminiActiveTaskId=null;
   if(d.error){
