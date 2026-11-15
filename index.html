@@ -190,6 +190,9 @@ let adaptiveQueue={tasks:[],current:null,paused:false,message:""};
 let builtBatchSize=60;
 let autoGeminiMode=false;
 let autoDispatchTimer=null;
+let autoGeminiInFlight=false;
+let autoGeminiActiveTaskId=null;
+let autoGeminiTaskCounter=0;
 
 function setAdaptiveStatus(message,isError=false){
  const el=document.getElementById("adaptiveStatus");
@@ -360,6 +363,10 @@ function processAdaptiveResponse(){
 
 function startAutoGemini(){
  if(!globalParsedData.length){alert("Muat file SRT terlebih dahulu.");return;}
+ if(autoGeminiInFlight || (autoGeminiMode && autoDispatchTimer!==null)){
+  setAdaptiveStatus("Tugas otomatis masih berjalan atau sedang menunggu pengiriman. Tugas yang sama tidak dikirim ulang.");
+  return;
+ }
  if(adaptiveQueue.scope!=="all"||(!adaptiveQueue.current&&!adaptiveQueue.tasks.length)){
   startAdaptiveQueue();
   if(!adaptiveQueue.current&&!adaptiveQueue.tasks.length)return;
@@ -371,28 +378,43 @@ function startAutoGemini(){
 }
 
 function dispatchAutoGeminiTask(){
- if(!autoGeminiMode||adaptiveQueue.paused)return;
+ if(!autoGeminiMode||adaptiveQueue.paused||autoGeminiInFlight)return;
+ if(autoDispatchTimer!==null){clearTimeout(autoDispatchTimer);autoDispatchTimer=null;}
  if(!adaptiveQueue.current)advanceAdaptiveQueue();
  const task=adaptiveQueue.current;
  if(!task){autoGeminiMode=false;return;}
- const payload={prompt:document.getElementById("systemPrompt").value.trim(),items:task.items};
- setAdaptiveStatus(`Mengirim ${task.items.length} dialog ke Gemini. ${adaptiveTaskSummary()}`);
+ const taskId=`srt-${Date.now()}-${++autoGeminiTaskCounter}`;
+ autoGeminiInFlight=true;
+ autoGeminiActiveTaskId=taskId;
+ const payload={prompt:document.getElementById("systemPrompt").value.trim(),items:task.items,taskId};
+ setAdaptiveStatus(`Mengirim satu kali ${task.items.length} dialog ke Gemini. ${adaptiveTaskSummary()}`);
  window.postMessage({source:"srt-batch-app",type:"SRT_GEMINI_SEND",task:payload},"*");
 }
 
 function scheduleAutoGeminiNext(){
- if(!autoGeminiMode||adaptiveQueue.paused)return;
- clearTimeout(autoDispatchTimer);
- autoDispatchTimer=setTimeout(dispatchAutoGeminiTask,1200);
+ if(!autoGeminiMode||adaptiveQueue.paused||autoGeminiInFlight)return;
+ if(autoDispatchTimer!==null)clearTimeout(autoDispatchTimer);
+ autoDispatchTimer=setTimeout(()=>{
+  autoDispatchTimer=null;
+  dispatchAutoGeminiTask();
+ },1200);
 }
 
 function handleAutoGeminiMessage(event){
  if(event.source!==window||event.data?.source!=="srt-gemini-extension")return;
  const d=event.data;
  if(d.type==="SRT_AUTO_ACK"){
+  if(d.taskId && d.taskId!==autoGeminiActiveTaskId)return;
   const status=document.getElementById("extensionStatus");
   if(d.ok){if(status)status.textContent="Status ekstensi: terhubung ke tab Gemini.";}
-  else{if(status)status.textContent="Status ekstensi: gagal terhubung — "+(d.error||"tidak diketahui");autoGeminiMode=false;adaptiveQueue.paused=true;setAdaptiveStatus("Ekstensi tidak dapat menerima tugas: "+(d.error||"tidak diketahui")+". Periksa pemasangan ekstensi.",true);}
+  else{
+   autoGeminiInFlight=false;
+   autoGeminiActiveTaskId=null;
+   if(status)status.textContent="Status ekstensi: gagal terhubung — "+(d.error||"tidak diketahui");
+   autoGeminiMode=false;
+   adaptiveQueue.paused=true;
+   setAdaptiveStatus("Ekstensi tidak dapat terhubung: "+(d.error||"tidak diketahui")+". Tugas tidak akan dikirim ulang otomatis.",true);
+  }
   return;
  }
  if(d.type==="SRT_AUTO_STATUS"){
@@ -400,9 +422,21 @@ function handleAutoGeminiMessage(event){
   return;
  }
  if(d.type==="SRT_AUTO_RESULT"){
-  if(d.error){autoGeminiMode=false;adaptiveQueue.paused=true;setAdaptiveStatus("Otomatis dijeda: "+d.error+". Tugas tetap tersimpan; periksa Gemini lalu mulai lagi.",true);return;}
+  // Abaikan respons yang terlambat atau terkirim dua kali.
+  if(!d.taskId || d.taskId!==autoGeminiActiveTaskId)return;
+  autoGeminiInFlight=false;
+  autoGeminiActiveTaskId=null;
+  if(d.error){
+   autoGeminiMode=false;
+   adaptiveQueue.paused=true;
+   setAdaptiveStatus("Otomatis dijeda: "+d.error+". Tugas tetap tersimpan; periksa Gemini lalu mulai lagi.",true);
+   return;
+  }
   if(typeof d.result!=="string"||!d.result.trim()){
-   autoGeminiMode=false;adaptiveQueue.paused=true;setAdaptiveStatus("Gemini tidak mengembalikan teks jawaban. Tugas tetap tersimpan untuk diperiksa.",true);return;
+   autoGeminiMode=false;
+   adaptiveQueue.paused=true;
+   setAdaptiveStatus("Gemini tidak mengembalikan teks jawaban. Tugas tetap tersimpan untuk diperiksa.",true);
+   return;
   }
   document.getElementById("currentTranslatedInput").value=d.result;
   inspectTranslationInput();
@@ -415,6 +449,7 @@ window.addEventListener("message",handleAutoGeminiMessage);
 function pauseAdaptiveQueue(){
  autoGeminiMode=false;
  clearTimeout(autoDispatchTimer);
+ autoDispatchTimer=null;
  adaptiveQueue.paused=true;
  setAdaptiveStatus("Antrean dijeda. Tugas aktif dan tugas menunggu tetap tersimpan.");
 }
