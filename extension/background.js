@@ -3,9 +3,10 @@ async function findGeminiTab() {
   return tabs.find(t => t.active) || tabs[0] || null;
 }
 
-async function sendToGeminiTab(tabId, task) {
+async function sendToGeminiTab(tabId, task, returnTabId) {
+  const routedTask = {...task, returnTabId};
   try {
-    await chrome.tabs.sendMessage(tabId, {type:"SRT_GEMINI_RUN",task});
+    await chrome.tabs.sendMessage(tabId, {type:"SRT_GEMINI_RUN",task:routedTask});
     return;
   } catch (firstError) {
     // The Gemini content script may not have been injected into an already-open tab.
@@ -29,24 +30,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     const tab = await findGeminiTab();
     if (!tab || !tab.id) throw new Error("Tab Gemini tidak ditemukan. Buka Gemini dan login terlebih dahulu.");
-    await sendToGeminiTab(tab.id, message.task);
+    await sendToGeminiTab(tab.id, message.task, sender?.tab?.id);
     sendResponse({ok:true});
   })().catch(error => sendResponse({error:error.message || String(error)}));
   return true;
 });
 
-chrome.runtime.onMessage.addListener((message) => {
-  if (!message || message.type !== "SRT_GEMINI_FINISHED") return;
+function forwardToRequestingApp(message, appMessage) {
+  const payload = appMessage;
+  if (Number.isInteger(message.returnTabId)) {
+    chrome.tabs.sendMessage(message.returnTabId, payload).catch(() => {});
+    return;
+  }
+  // Fallback for older SRT Gemini Auto Bridge tasks.
   chrome.tabs.query({url:"https://untuksrt5git.github.io/srthtml/*"}).then(tabs => {
     const appTab = tabs.find(t => t.active) || tabs[0];
-    if (appTab?.id) chrome.tabs.sendMessage(appTab.id,{type:"SRT_AUTOMATION_RESULT",result:message.result,error:message.error}).catch(()=>{});
+    if (appTab?.id) chrome.tabs.sendMessage(appTab.id, payload).catch(() => {});
   });
+}
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (!message || message.type !== "SRT_GEMINI_FINISHED") return;
+  forwardToRequestingApp(message, {type:"SRT_AUTOMATION_RESULT",result:message.result,error:message.error});
 });
 
 chrome.runtime.onMessage.addListener((message) => {
   if (!message || message.type !== "SRT_GEMINI_PROGRESS") return;
-  chrome.tabs.query({url:"https://untuksrt5git.github.io/srthtml/*"}).then(tabs => {
-    const appTab = tabs.find(t => t.active) || tabs[0];
-    if (appTab?.id) chrome.tabs.sendMessage(appTab.id,{type:"SRT_AUTOMATION_STATUS",message:message.message}).catch(()=>{});
-  });
+  forwardToRequestingApp(message, {type:"SRT_AUTOMATION_STATUS",message:message.message});
 });
