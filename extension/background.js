@@ -98,7 +98,7 @@ async function forwardToRequestingApp(message, appMessage) {
 
 chrome.runtime.onMessage.addListener((message) => {
   if (!message || message.type !== "SRT_GEMINI_FINISHED") return;
-  forwardToRequestingApp(message, {type:"SRT_AUTOMATION_RESULT",result:message.result,error:message.error});
+  forwardToRequestingApp(message, {type:"SRT_AUTOMATION_RESULT",taskId:message.taskId,result:message.result,error:message.error});
 });
 
 chrome.runtime.onMessage.addListener((message) => {
