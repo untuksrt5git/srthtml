@@ -1464,10 +1464,13 @@ function persistAppState(showMessage=true){
   }
  }catch(error){showAutosaveStatus("Autosave gagal. Penyimpanan browser mungkin penuh; ekspor cadangan JSON.",true);}
 }
-function loadMultiFile(id,skipCapture=false){
+function loadMultiFile(id,skipCapture=false,fromAutoQueue=false){
  const file=getMultiFileById(id);
  if(!file||!file.snapshot)return false;
- if(autoGeminiMode&&!multiFileAutoMode&&!switchingMultiFiles){alert("Jeda proses Gemini terlebih dahulu sebelum berpindah file.");return false;}
+ if(autoGeminiMode&&!fromAutoQueue&&!switchingMultiFiles){
+  alert("Antrean Gemini sedang berjalan. Jeda proses terlebih dahulu sebelum berpindah file secara manual.");
+  return false;
+ }
  if(!skipCapture)persistAppState(false);
  const autosaveWasDisabled=autosaveDisabled;
  activeMultiFileId=id;switchingMultiFiles=true;
@@ -1556,7 +1559,7 @@ function advanceToNextMultiFile(){
   const index=(Math.max(-1,currentIndex)+step)%multiFileWorkspace.length,file=multiFileWorkspace[index];
   if(file.id===activeMultiFileId)continue;
   if(getMultiFileStats(file).missing>0){
-   loadMultiFile(file.id);adaptiveQueue={tasks:[],current:null,paused:false,message:"",scope:"all"};startAdaptiveQueue();
+   loadMultiFile(file.id,false,true);adaptiveQueue={tasks:[],current:null,paused:false,message:"",scope:"all"};startAdaptiveQueue();
    if(adaptiveQueue.current){setAdaptiveStatus("File sebelumnya selesai. Melanjutkan otomatis ke "+file.name+". "+adaptiveTaskSummary());return true;}
   }
  }
