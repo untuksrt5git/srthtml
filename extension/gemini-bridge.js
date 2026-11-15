@@ -21,7 +21,8 @@
   }
 
   function readLastAnswer() {
-    // Selector utama Gemini, lalu beberapa variasi DOM sebagai fallback.
+    // Gabungkan semua selector: jangan berhenti pada selector pertama,
+    // karena DOM Gemini dapat menyimpan node jawaban lama/bersarang.
     const selectors = [
       "model-response",
       "message-content",
@@ -31,17 +32,28 @@
       ".markdown-main-panel",
       "structured-content"
     ];
+    const found = new Set();
     for (const selector of selectors) {
-      const nodes = [...document.querySelectorAll(selector)].filter(node => {
-        const text = (node.innerText || node.textContent || "").trim();
-        return text.length > 0;
-      });
-      if (nodes.length) {
-        const text = (nodes[nodes.length - 1].innerText || nodes[nodes.length - 1].textContent || "").trim();
-        if (text) return text;
-      }
+      document.querySelectorAll(selector).forEach(node => found.add(node));
     }
-    return "";
+    const candidates = [...found].map(node => ({
+      node,
+      text: (node.innerText || node.textContent || "").trim()
+    })).filter(item =>
+      item.text.length > 0 &&
+      !item.node.hidden &&
+      item.node.getAttribute("aria-hidden") !== "true" &&
+      item.node.getClientRects().length > 0
+    );
+    if (!candidates.length) return "";
+
+    // Ambil node paling akhir dalam urutan DOM, bukan node dari
+    // selector dengan prioritas tertinggi yang mungkin berisi jawaban lama.
+    candidates.sort((a, b) => {
+      if (a.node === b.node) return 0;
+      return a.node.compareDocumentPosition(b.node) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+    });
+    return candidates[candidates.length - 1].text;
   }
 
   function isActuallyVisible(element) {
@@ -66,17 +78,41 @@
     });
   }
 
-  function looksLikeCompleteJsonArray(text) {
-    if (!text) return false;
+  function extractCompleteJsonArray(text) {
+    if (!text) return "";
+    // Cari array JSON lengkap walaupun Gemini menambahkan pagar kode
+    // atau kalimat pengantar. Hitung kurung sambil mengabaikan isi string.
     const start = text.indexOf("[");
-    const end = text.lastIndexOf("]");
-    if (start < 0 || end <= start) return false;
-    try {
-      const parsed = JSON.parse(text.slice(start, end + 1));
-      return Array.isArray(parsed) && parsed.length > 0;
-    } catch (_) {
-      return false;
+    if (start < 0) return "";
+    let depth = 0, inString = false, escaped = false;
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') inString = true;
+      else if (ch === "[") depth++;
+      else if (ch === "]") {
+        depth--;
+        if (depth === 0) {
+          const candidate = text.slice(start, i + 1);
+          try {
+            const parsed = JSON.parse(candidate);
+            return Array.isArray(parsed) && parsed.length ? candidate : "";
+          } catch (_) {
+            return "";
+          }
+        }
+      }
     }
+    return "";
+  }
+
+  function looksLikeCompleteJsonArray(text) {
+    return !!extractCompleteJsonArray(text);
   }
 
   async function waitForAnswer(previous, timeoutMs=240000) {
@@ -93,11 +129,18 @@
         // Terima jawaban yang stabil setelah tombol stop hilang.
         // Jika isi sudah berupa JSON array lengkap dan valid, jangan tertahan
         // hanya karena indikator/tombol Gemini salah terbaca masih generating.
-        if (stable >= 3 && (!generating || looksLikeCompleteJsonArray(text))) return text;
+        if (stable >= 3 && (!generating || looksLikeCompleteJsonArray(text))) {
+          const jsonArray = extractCompleteJsonArray(text);
+          return jsonArray || text;
+        }
       }
     }
     const latest = readLastAnswer();
-    if (latest && latest !== previous && !isGenerating()) return latest;
+    if (latest && latest !== previous) {
+      const jsonArray = extractCompleteJsonArray(latest);
+      if (jsonArray) return jsonArray;
+      if (!isGenerating()) return latest;
+    }
     throw new Error("Waktu tunggu jawaban Gemini habis. Jawaban belum berhasil dibaca otomatis; periksa tab Gemini.");
   }
 
