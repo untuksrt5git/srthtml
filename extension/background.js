@@ -18,7 +18,7 @@ async function sendToGeminiTab(tabId, task, returnTabId) {
         target: {tabId},
         files: ["gemini-bridge.js"]
       });
-      await chrome.tabs.sendMessage(tabId, {type:"SRT_GEMINI_RUN",task});
+      await chrome.tabs.sendMessage(tabId, {type:"SRT_GEMINI_RUN",task:routedTask});
     } catch (retryError) {
       throw new Error("Skrip Gemini tidak dapat dimuat atau tidak merespons. Pastikan tab Gemini sudah selesai dimuat dan extension memiliki izin untuk gemini.google.com. Detail: " + (retryError.message || String(retryError)));
     }
