@@ -107,13 +107,21 @@ button.danger{background:var(--bad)}
 <h3>3. Prompt dan JSON Batch</h3>
 <div class="form-group">
 <label for="systemPrompt">Prompt (dapat diedit)</label>
-<textarea id="systemPrompt" rows="7">Terjemahkan teks pada value "text" di dalam JSON berikut ke dalam Bahasa Indonesia yang natural, intim, dan sehari-hari. Gunakan kata 'kontol' dan 'memek', serta frasa 'keluarkan pejunya di dalam' (jangan pakai kata slang kaku).
-ATURAN KETAT:
-1. JANGAN mengubah struktur key JSON, urutan, maupun jumlah data.
-2. JANGAN mengubah format key "id".
-3. Hanya terjemahkan teks pada "text".
-4. Kembalikan hasilnya DALAM FORMAT JSON YANG VALID PERSIS SEPERTI INPUT TANPA TEKS TAMBAHAN.
-5. Kembalikan dalam bentuk code yg bisa di copy</textarea>
+<textarea id="systemPrompt" rows="15">Terjemahkan VALUE ("t") dari JSON berikut dari bahasa Jepang ke Bahasa Indonesia yang sangat natural, sensual, menggoda, penuh hasrat, dan ekspresif (konteks film dewasa JAV). Gunakan bahasa informal sehari-hari yang intim, BUKAN bahasa baku yang kaku. Terjemahan harus ringkas seperti subtitle.
+
+ATURAN KHUSUS KONTEKS & AUDIO:
+- Jika ada teks hasil Whisper yang terdengar seperti salah tangkap/kata ngawur/nama benda aneh (karena kesalahan dengar audio AI, misal nama makanan/tempat yang tidak nyambung dengan adegan), abaikan arti harfiahnya dan sesuaikan terjemahannya agar tetap masuk akal dengan konteks percintaan/desahan/suasana intim, atau buat sekecil/sesenatural mungkin.
+
+IKUTI ATURAN KETAT BERIKUT TANPA KECUALI:
+1. JUMLAH OBJEK HARUS SAMA PERSIS: Array JSON hasil WAJIB memiliki jumlah objek yang sama persis dengan array input. Dilarang keras menambah, menghapus, menggabungkan, atau memisahkan objek.
+2. URUTAN HARUS SAMA PERSIS: Urutan objek pada hasil WAJIB identik dengan urutan pada input, berdasarkan nilai "i" masing-masing.
+3. JANGAN UBAH "i": Nilai properti "i" pada setiap objek wajib dibiarkan utuh dan sama persis seperti aslinya.
+4. TERJEMAHKAN SEMUA & JANGAN KOSONG: Setiap satu pun nilai "t" WAJIB diterjemahkan secara individual. Dilarang membiarkan ada teks yang kosong. Jika berupa interjeksi/desahan, sesuaikan ke padanan natural Bahasa Indonesia.
+5. STRUKTUR JSON: Kembalikan seluruh data dalam format array of objects yang identik strukturnya dengan input, dibungkus dalam satu blok kode ```json.
+6. HANYA JSON SAJA: Di dalam blok kode, berikan hanya array JSON hasil akhir. Dilarang menyisipkan teks lain, penjelasan, atau catatan.
+7. PANJANG BARIS: Jaga agar tiap baris maksimal sekitar 40 karakter dan maksimal 2 baris. Jika perlu 2 baris, pisahkan dengan \n di dalam nilai "t".
+8. KONTEKS: Dialog film, pembicara bisa laki-laki atau perempuan.
+9. TANDA BACA: Jika teks hanya berupa tanda baca/simbol murni, pertahankan apa adanya.</textarea>
 <button class="warning" onclick="resetPrompt()">Reset Prompt Default</button>
 </div>
 
@@ -182,6 +190,13 @@ ATURAN KETAT:
 <script>
 let globalParsedData=[],globalBatches=[],originalFileName="subtitle",translationStorage={};
 const defaultPromptText=document.getElementById("systemPrompt").value;
+const legacyDefaultPromptText="Terjemahkan teks pada value \"text\" di dalam JSON berikut ke dalam Bahasa Indonesia yang natural, intim, dan sehari-hari. Gunakan kata 'kontol' dan 'memek', serta frasa 'keluarkan pejunya di dalam' (jangan pakai kata slang kaku).\nATURAN KETAT:\n1. JANGAN mengubah struktur key JSON, urutan, maupun jumlah data.\n2. JANGAN mengubah format key \"id\".\n3. Hanya terjemahkan teks pada \"text\".\n4. Kembalikan hasilnya DALAM FORMAT JSON YANG VALID PERSIS SEPERTI INPUT TANPA TEKS TAMBAHAN.\n5. Kembalikan dalam bentuk code yg bisa di copy";
+function toAiJsonItems(items){
+ return items.map(item=>({i:item.id,t:item.text}));
+}
+function formatAiJsonFromInternal(items){
+ return JSON.stringify(toAiJsonItems(items),null,2);
+}
 const AUTOSAVE_KEY="srt_batch_translator_v24_autosave";
 let restoringState=false;
 let autosaveTimer=null;
@@ -274,7 +289,7 @@ function copyAdaptiveTask(){
  const t=adaptiveQueue.current;
  if(!t){alert("Tidak ada tugas aktif. Buat antrean terlebih dahulu.");return;}
  const prompt=document.getElementById("systemPrompt").value.trim();
- const text=`${prompt}\n\nDATA JSON (${t.items.length} dialog; tugas otomatis):\n${JSON.stringify(t.items,null,2)}`;
+ const text=`${prompt}\n\nDATA JSON (${t.items.length} dialog; tugas otomatis):\n${formatAiJsonFromInternal(t.items)}`;
  copyToClipboard(text,`Tugas ${t.items.length} dialog berhasil disalin. Buka Gemini dan tempel prompt tersebut.`);
 }
 
@@ -322,7 +337,7 @@ function processAdaptiveResponse(){
   translationStorage[key]=JSON.stringify(ordered);
   const got=new Set(incoming.map(x=>x.id));
   const missing=expected.filter(x=>!got.has(x.id));
-  document.getElementById("currentTranslatedInput").value=translationStorage[key];
+  document.getElementById("currentTranslatedInput").value=formatAiJsonFromInternal(ordered);
   updateStatusPanel();persistAppState(false);
   adaptiveQueue.current=null;
   if(missing.length){
@@ -386,7 +401,7 @@ function dispatchAutoGeminiTask(){
  const taskId=`srt-${Date.now()}-${++autoGeminiTaskCounter}`;
  autoGeminiInFlight=true;
  autoGeminiActiveTaskId=taskId;
- const payload={prompt:document.getElementById("systemPrompt").value.trim(),items:task.items,taskId};
+ const payload={prompt:document.getElementById("systemPrompt").value.trim(),items:toAiJsonItems(task.items),taskId};
  setAdaptiveStatus(`Mengirim satu kali ${task.items.length} dialog ke Gemini. ${adaptiveTaskSummary()}`);
  window.postMessage({source:"srt-batch-app",type:"SRT_GEMINI_SEND",task:payload},"*");
 }
@@ -635,7 +650,7 @@ function copyMainBatchPrompt(batchIndex){
  if(!batch)return;
  const prompt=document.getElementById("systemPrompt").value.trim();
  const items=batch.items.map(item=>({id:item.id,text:item.text}));
- copyToClipboard(`${prompt}\n\nDATA JSON (Batch ${batchIndex+1}; ${items.length} dialog):\n${JSON.stringify(items,null,2)}`,`Prompt Batch ${batchIndex+1} berhasil disalin.`);
+ copyToClipboard(`${prompt}\n\nDATA JSON (Batch ${batchIndex+1}; ${items.length} dialog):\n${formatAiJsonFromInternal(items)}`,`Prompt Batch ${batchIndex+1} berhasil disalin.`);
 }
 
 function copySubBatchPrompt(batchIndex,subIndex){
@@ -643,7 +658,7 @@ function copySubBatchPrompt(batchIndex,subIndex){
  if(!sub)return;
  const prompt=document.getElementById("systemPrompt").value.trim();
  const items=sub.map(item=>({id:item.id,text:item.text}));
- copyToClipboard(`${prompt}\n\nDATA JSON (Batch ${batchIndex+1}, Sub-Batch ${subIndex+1}; ${items.length} dialog):\n${JSON.stringify(items,null,2)}`,`Prompt Batch ${batchIndex+1}, Sub-Batch ${subIndex+1} berhasil disalin.`);
+ copyToClipboard(`${prompt}\n\nDATA JSON (Batch ${batchIndex+1}, Sub-Batch ${subIndex+1}; ${items.length} dialog):\n${formatAiJsonFromInternal(items)}`,`Prompt Batch ${batchIndex+1}, Sub-Batch ${subIndex+1} berhasil disalin.`);
 }
 
 function rebuildBatchStructureIfNeeded(){
@@ -762,7 +777,7 @@ function applySnapshot(data){
   translationStorage=(data.translationStorage&&typeof data.translationStorage==="object")?data.translationStorage:{};
   adaptiveQueue={tasks:[],current:null,paused:false,message:"",scope:"all"};
   document.getElementById("batchSize").value=batchSize;
-  if(typeof data.prompt==="string")document.getElementById("systemPrompt").value=data.prompt;
+  if(typeof data.prompt==="string")document.getElementById("systemPrompt").value=(data.prompt===legacyDefaultPromptText?defaultPromptText:data.prompt);
 
   // Memulihkan susunan lama v2.9 atau konfigurasi per-Batch v3.0.
   globalBatches=buildBatches(globalParsedData,batchSize,legacySubSize,batchConfigs);
@@ -972,7 +987,7 @@ function displayBatchData(){
  if(!active)return;
 
  document.getElementById("jsonBatchOutput").value=
-  JSON.stringify(active.data.map(x=>({id:x.id,text:x.text})),null,2);
+  formatAiJsonFromInternal(active.data);
 
  document.getElementById("currentSubBatchLabel").textContent=
   `Hasil Batch ${active.b+1}, Sub ${active.s+1} (ID ${active.data[0].id}–${active.data.at(-1).id})`;
@@ -1052,8 +1067,8 @@ function extractTranslationItems(value,out=[]){
  }
 
  if(value&&typeof value==="object"){
-  const id=value.id??value.ID;
-  const text=value.text??value.translation;
+  const id=value.i??value.id??value.ID;
+  const text=value.t??value.text??value.translation;
 
   if(id!==undefined){
    out.push({id:Number(id),text});
@@ -1174,7 +1189,7 @@ function saveCurrentSubBatchTranslation(){
 
   // Tampilkan kembali hasil gabungan agar tidak membingungkan.
   document.getElementById("currentTranslatedInput").value=
-   JSON.stringify(ordered,null,2);
+   formatAiJsonFromInternal(ordered);
   inspectTranslationInput();
 
   updateStatusPanel();
@@ -1289,7 +1304,7 @@ function copyMissingJSONBatch(){
  const prompt=document.getElementById("systemPrompt").value.trim();
 
  const output=
-  `${prompt}\n\nDATA JSON (${missing.length} dialog yang belum diterjemahkan di Batch ${active.b+1}, Sub ${active.s+1}):\n${JSON.stringify(missing,null,2)}`;
+  `${prompt}\n\nDATA JSON (${missing.length} dialog yang belum diterjemahkan di Batch ${active.b+1}, Sub ${active.s+1}):\n${formatAiJsonFromInternal(missing)}`;
 
  copyToClipboard(
   output,
