@@ -192,10 +192,18 @@ let globalParsedData=[],globalBatches=[],originalFileName="subtitle",translation
 const defaultPromptText=document.getElementById("systemPrompt").value;
 const legacyDefaultPromptText="Terjemahkan teks pada value \"text\" di dalam JSON berikut ke dalam Bahasa Indonesia yang natural, intim, dan sehari-hari. Gunakan kata 'kontol' dan 'memek', serta frasa 'keluarkan pejunya di dalam' (jangan pakai kata slang kaku).\nATURAN KETAT:\n1. JANGAN mengubah struktur key JSON, urutan, maupun jumlah data.\n2. JANGAN mengubah format key \"id\".\n3. Hanya terjemahkan teks pada \"text\".\n4. Kembalikan hasilnya DALAM FORMAT JSON YANG VALID PERSIS SEPERTI INPUT TANPA TEKS TAMBAHAN.\n5. Kembalikan dalam bentuk code yg bisa di copy";
 function toAiJsonItems(items){
- return items.map(item=>({i:item.id,t:item.text}));
+ return items.map(item=>({i:item.i??item.id,t:item.t??item.text}));
 }
 function formatAiJsonFromInternal(items){
  return JSON.stringify(toAiJsonItems(items),null,2);
+}
+function formatStoredAiJson(raw){
+ if(!raw)return "";
+ try{
+  const parsed=JSON.parse(raw);
+  if(Array.isArray(parsed))return formatAiJsonFromInternal(parsed);
+ }catch(error){}
+ return raw;
 }
 const AUTOSAVE_KEY="srt_batch_translator_v24_autosave";
 let restoringState=false;
